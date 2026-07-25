@@ -30,6 +30,27 @@ Bud together:
 ./scripts/start-demo.sh
 ```
 
+From the repository root, the Docker Compose demo is also available:
+
+```sh
+make up
+```
+
+When the services are ready, use:
+
+- `http://127.0.0.1:3002/` for a participant
+- `http://127.0.0.1:3002/facilitator` for the facilitator
+- `http://127.0.0.1:3002/topview` for development diagnostics
+
+The facilitator opens the room and allocates participants. Participants join
+from the root URL after allocation. The topview page is a separate diagnostic
+surface and should not be used as a workshop participant page.
+
+Use `QWEN_MODEL_MOUNT=/var/tmp/bud-qwen-model make up` to mount the existing
+local Qwen model, or use `/tmp/bud-qwen-model` when the home filesystem is
+short on space. `make down` preserves Docker model volumes; `make clean`
+removes Docker-managed volumes.
+
 The launcher prints the learner and facilitator URLs and writes service logs
 to `/tmp/bud-demo-logs`. Press `Ctrl+C` to stop the services it started.
 
@@ -54,6 +75,7 @@ Bud converts completed results into normalized utterance events.
 - Text-first normalized event ingestion.
 - Bud Core decisions for ME, US, THE ROOM, corrections, privacy, and WAIT.
 - Private "Help, I'm Stuck" support request flow.
+- Private periodic learner progress summaries with a bounded 90-second cooldown.
 - Context retrieval for facilitator instructions and recent permitted workshop evidence.
 - Adaptive private check-in flow for low observable participation.
 - Participation observation generator that can scan recent shared workshop activity and emit low-activity observations for quieter learners.
@@ -64,6 +86,8 @@ Bud converts completed results into normalized utterance events.
 - Server-issued, participant-bound LiveKit tokens when credentials are configured.
 - Facilitator room management: start named rooms, allocate learners, and
   reject unallocated learners from managed rooms.
+- Automatic facilitator room report on facilitator view entry, with the
+  existing manual room scan retained as an explicit refresh.
 - Browser LiveKit client connection and microphone publishing controls.
 - Local faster-whisper transcription and NLLB translation services for
   English, Spanish, Simplified Chinese, Burmese, and French.

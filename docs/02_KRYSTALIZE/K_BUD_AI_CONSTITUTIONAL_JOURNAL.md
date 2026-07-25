@@ -2005,6 +2005,50 @@ In a future cloud-hosted version, room availability should not depend on a teach
 
 Item 14 remains active. Ten items remain after Item 14. The next active question concerns whether teacher reconnection restores the same workshop state or creates a new workshop instance.
 
+### Session CJ-062
+
+```yaml
+session_id: CJ-062
+date: 2026-07-26
+trigger: Human requested that the AI Partner purpose and the newly implemented proactive behaviors be made explicit in the README, PRD, and constitutional state.
+scope: Bud AI partner thesis, bounded agency, periodic learner summaries, and automatic facilitator room reports.
+authority: human clarification
+```
+
+#### Locked Outcome
+
+Bud AI is intentionally built as a partner rather than a passive tool. A tool
+waits for an instruction and performs a defined operation. Bud exercises
+bounded agency toward the shared goal of preserving workshop meaning and
+continued collaboration: it may notice relevant signals, offer timely help,
+ask for clarification, summarize, surface patterns, adapt to human responses,
+or wait.
+
+The agency is constrained by privacy, evidence, participant agency, and
+facilitator authority. Bud cannot override a learner's intended meaning,
+expose private conversations without permission, infer understanding from
+silence, or make consequential workshop decisions for the facilitator.
+
+The human friction Bud is intended to reduce includes residual translation
+misunderstandings, embarrassment about admitting confusion, hesitation to ask
+questions, cognitive load across languages and turns, quieter participants
+becoming invisible, and facilitator blind spots about room-level patterns.
+
+#### Implementation Alignment
+
+The learner receives a private, context-grounded progress summary after joining
+and at bounded intervals with a 90-second cooldown. The facilitator receives an
+automatic aggregate room report when the facilitator view loads or reconnects.
+These behaviors are documented in the active PRD and remain subject to the
+existing green/yellow/red/unknown, privacy, and WAIT/NO_ACTION rules.
+
+#### Boundary
+
+This clarification strengthens the product thesis and records already-approved
+implementation behavior. It does not grant Bud autonomous authority, turn
+periodic summaries into diagnoses, or permit raw private learner content in
+facilitator reports. No new clarification frontier is opened.
+
 ## Clarification Rationale Tracking
 
 Use this section to preserve cognitive traversal lineage.
@@ -2082,6 +2126,8 @@ Record why a clarification became locked, deferred, accepted as uncertainty, or 
 | RR-015 | Clarification ordering rule | clarified | The human explicitly identified dependency-based ranking before clarification as necessary to prevent cross-document rewriting. | human clarification / KRYSTALIZE session CJ-013 | COR-001 |
 | RR-016 | Complete clarification frontier and priority order | clarified | A fresh review found nine additional gates and ranked all 24 by upstream dependency and rewrite risk. | human clarification / KRYSTALIZE session CJ-014 | CG-001 through CG-024, COR-001 |
 | RR-017 | PRD evolution record | clarified | The PRD now preserves its original baseline, explains the 24 clarification areas and first-pass limitation, and defines a future human-approved stabilized form. | human clarification / KRYSTALIZE session CJ-015 | PRD Evolution Record, CG-001 through CG-024 |
+| RR-018 | AI Partner design thesis | clarified | The human explicitly distinguished bounded AI partner agency from passive tool behavior and named the human friction Bud is intended to reduce. | human clarification / KRYSTALIZE session CJ-062 | LT-052, DEP-022 |
+| RR-019 | Proactive learner and facilitator behavior | clarified | Periodic learner summaries and automatic aggregate room reports were accepted as expressions of the partner thesis and documented with privacy and evidence limits. | human clarification / implementation refinement / CJ-062 | LT-053, LT-054, DEP-023 |
 
 ## Deferred Issues
 
@@ -2115,6 +2161,7 @@ Governance notes record authority-relevant context without creating new authorit
 | GN-004 | Clarification order must be ranked before a substantial KRYSTALIZE pass. | COR-001 | The human project owner controls clarification priority; KRYSTALIZE preserves the dependency reasoning. | Rank the frontier before opening the next clarification branch and re-rank when higher-order ambiguity appears. |
 | GN-005 | The complete future clarification queue is dependency-ordered, with the WorkshopModel authority decision first. | CG-016 through CG-024, COR-001 | The human project owner controls priority; the ranking protects cross-document consistency without finalizing the underlying decisions. | Begin the next clarification pass with CG-016 and maintain one active question at a time. |
 | GN-006 | The PRD must show its evolution from AREN baseline through KRYSTALIZE to human-approved stabilization. | PRD Evolution Record | The human project owner controls final PRD approval; historical baseline and unresolved meaning must remain traceable. | Do not replace the original baseline or label Part 3 final before the relevant gates are settled. |
+| GN-007 | Bud's agency is bounded partnership, not autonomous authority. | LT-052 | Bud may proactively support a shared workshop goal, but privacy, evidence, participant agency, and facilitator authority remain controlling boundaries. | Preserve the distinction in product messaging, UI behavior, and demo claims. |
 
 ## Major Constitutional Shifts
 

@@ -8,6 +8,7 @@ from transformers import AutoTokenizer
 
 MODEL_DIR = os.environ.get("NLLB_MODEL_DIR", "/tmp/bud-nllb-model")
 PORT = int(os.environ.get("TRANSLATION_PORT", "8788"))
+HOST = os.environ.get("TRANSLATION_HOST", "127.0.0.1")
 LANGUAGES = {
     "en": "eng_Latn",
     "eng": "eng_Latn",
@@ -76,4 +77,4 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
-HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+HTTPServer((HOST, PORT), Handler).serve_forever()

@@ -2,8 +2,10 @@ const { AccessToken, RoomServiceClient } = require("livekit-server-sdk");
 
 function livekitConfig(env) {
   const source = env || process.env;
+  const serverUrl = source.LIVEKIT_SERVER_URL || source.LIVEKIT_URL || "";
   return {
-    url: source.LIVEKIT_URL || "",
+    url: source.LIVEKIT_PUBLIC_URL || source.LIVEKIT_URL || "",
+    serverUrl,
     apiKey: source.LIVEKIT_API_KEY || "",
     apiSecret: source.LIVEKIT_API_SECRET || "",
     roomName: source.LIVEKIT_ROOM || "bud-demo-room"
@@ -60,7 +62,7 @@ async function createParticipantToken(input, env) {
 async function ensureRoom(roomName, env) {
   const config = livekitConfig(env);
   requireConfig(config);
-  const host = config.url.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
+  const host = config.serverUrl.replace(/^wss:/, "https:").replace(/^ws:/, "http:");
   const service = new RoomServiceClient(host, config.apiKey, config.apiSecret);
   try {
     return await service.createRoom({

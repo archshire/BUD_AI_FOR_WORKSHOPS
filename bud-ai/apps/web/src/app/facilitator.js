@@ -340,6 +340,9 @@ function renderState(state) {
   document.getElementById("yellow-count").textContent = state.rollup.yellow;
   document.getElementById("red-count").textContent = state.rollup.red;
   document.getElementById("unknown-count").textContent = state.rollup.unknown;
+  document.getElementById("room-report").textContent = state.room_report
+    ? state.room_report.text
+    : "Bud will provide an automatic room report when this view loads.";
   document.getElementById("most-flagged-point").textContent = state.rollup.most_flagged_recap_point
     ? "Most yellow/red reports: " + state.rollup.most_flagged_recap_point + " (" + state.rollup.most_flagged_count + ")"
     : "No yellow/red cluster identified yet.";

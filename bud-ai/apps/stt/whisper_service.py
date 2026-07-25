@@ -10,6 +10,7 @@ MODEL_SIZE = os.environ.get("WHISPER_MODEL", "base")
 DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
 COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
 PORT = int(os.environ.get("STT_PORT", "8787"))
+HOST = os.environ.get("STT_HOST", "127.0.0.1")
 
 print("Loading faster-whisper model: %s" % MODEL_SIZE, flush=True)
 MODEL = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
@@ -63,4 +64,4 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
-HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+HTTPServer((HOST, PORT), Handler).serve_forever()

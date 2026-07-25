@@ -9,6 +9,7 @@
 - Active PRD: `01_PRODUCT/PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS.md`
 - Current constitutional state: `02_KRYSTALIZE/K_BUD_AI_CONSTITUTIONAL_STATE.md`
 - Implementation/demo status: `05_DEMO_AND_TESTING/TEST_AND_DEMO_PLAN.md`
+- Formal architecture: `04_IMPLEMENTATION/ARCHITECTURE.md`
 - Runnable application: `../bud-ai/README.md`
 
 ## Authority order

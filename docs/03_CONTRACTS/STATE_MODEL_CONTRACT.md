@@ -80,6 +80,13 @@ type ParticipantState = {
 
 ParticipantState must not contain psychological profiling, arbitrary learner scores, or unsupported stable claims about ability, motivation, or personality.
 
+Periodic learner progress summaries are private messages in the
+`private_participant_ai` scope. They may orient a learner to the current
+workshop focus, but they do not change comprehension state and must not infer a
+green, yellow, or red response. Facilitator room reports are aggregate
+projections derived from explicit participant-reported comprehension evidence;
+no response remains `unknown`.
+
 ### GroupState - US
 
 ```ts

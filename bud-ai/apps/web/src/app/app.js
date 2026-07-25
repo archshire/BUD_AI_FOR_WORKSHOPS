@@ -43,6 +43,7 @@ let speechCaptureActive = false;
 let roomParticipants = {};
 let speechChunkSequence = 0;
 let latestSpeechSequence = 0;
+let periodicSummaryTimer = null;
 
 function getParticipantId() {
   const key = "bud-participant-id";
@@ -109,6 +110,7 @@ function boot() {
 
   getState();
   window.setInterval(getState, 3000);
+  periodicSummaryTimer = window.setInterval(requestPeriodicSummary, 90000);
   updateBudName();
   applyLearnerBackground();
   applyBudAvatar();
@@ -210,11 +212,26 @@ function connectWorkshop() {
         roomParticipants[identity] = participant.name || identity;
       });
       renderPresence();
+      requestPeriodicSummary();
     })
     .catch(function (error) {
       setConnectionStatus(error.message);
       elements.connectButton.disabled = false;
     });
+}
+
+function requestPeriodicSummary() {
+  if (!livekitRoom) return;
+  fetch("/api/participant-summary", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ participant_id: PARTICIPANT_ID })
+  })
+    .then(function (response) { return response.json(); })
+    .then(function (payload) {
+      if (payload.state) renderState(payload.state);
+    })
+    .catch(function () {});
 }
 
 function publishMicrophone() {
@@ -494,7 +511,9 @@ function renderMessages(messages) {
     item.className = "message " + (message.sender === "learner" ? "message-user" : "message-bud");
     const sender = document.createElement("span");
     sender.className = "message-sender";
-    sender.textContent = message.sender === "learner" ? "You" : "Bud";
+    sender.textContent = message.sender === "learner"
+      ? "You"
+      : message.message_type === "periodic_summary" ? "Bud / Check-in summary" : "Bud";
     const text = document.createElement("div");
     text.textContent = message.text;
     const time = document.createElement("time");

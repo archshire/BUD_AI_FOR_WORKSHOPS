@@ -1,0 +1,73 @@
+services:
+  livekit:
+    image: livekit/livekit-server:latest
+    command: ["--dev", "--bind", "0.0.0.0", "--node-ip", "${LIVEKIT_NODE_IP:-127.0.0.1}"]
+    ports:
+      - "${LIVEKIT_PORT:-7880}:7880"
+      - "${LIVEKIT_TCP_PORT:-7881}:7881"
+      - "${LIVEKIT_UDP_PORT:-7882}:7882/udp"
+
+  whisper:
+    build:
+      context: ./bud-ai/apps/stt
+    environment:
+      STT_HOST: 0.0.0.0
+      STT_PORT: 8787
+      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      HF_HOME: /models/huggingface
+    volumes:
+      - whisper-models:/models
+
+  translation:
+    build:
+      context: ./bud-ai/apps/translation
+    environment:
+      TRANSLATION_HOST: 0.0.0.0
+      TRANSLATION_PORT: 8788
+      NLLB_MODEL_DIR: /models/nllb
+      HF_HOME: /models/huggingface
+    volumes:
+      - nllb-models:/models
+
+  qwen:
+    build:
+      context: ./bud-ai/apps/llm
+    environment:
+      LLM_HOST: 0.0.0.0
+      LLM_PORT: 8790
+      LLM_THREADS: ${LLM_THREADS:-12}
+      QWEN_MODEL_DIR: /models/qwen
+      QWEN_MODEL_PATH: /models/qwen/${QWEN_MODEL_FILE:-Qwen3-1.7B.Q4_K_M.gguf}
+      QWEN_MODEL_URL: ${QWEN_MODEL_URL:-}
+    volumes:
+      - ${QWEN_MODEL_MOUNT:-qwen-models}:/models/qwen
+
+  bud:
+    build:
+      context: ./bud-ai
+    depends_on:
+      - livekit
+      - whisper
+      - translation
+      - qwen
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3002
+      LIVEKIT_URL: ws://livekit:7880
+      LIVEKIT_SERVER_URL: ws://livekit:7880
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-ws://127.0.0.1:7880}
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
+      STT_HOST: whisper
+      STT_PORT: 8787
+      TRANSLATION_HOST: translation
+      TRANSLATION_PORT: 8788
+      LLM_HOST: qwen
+      LLM_PORT: 8790
+    ports:
+      - "${BUD_PORT:-3002}:3002"
+
+volumes:
+  whisper-models:
+  nllb-models:
+  qwen-models:

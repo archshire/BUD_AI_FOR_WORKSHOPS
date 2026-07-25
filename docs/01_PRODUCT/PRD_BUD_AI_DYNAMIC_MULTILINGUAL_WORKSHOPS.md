@@ -110,6 +110,32 @@ OBSERVE HUMAN RESPONSE
 REVISE
 ```
 
+## 3A. AI Partner Design Thesis
+
+Bud AI is intentionally designed as a partner rather than a passive tool. A
+tool waits for an instruction and performs a bounded operation. A partner
+exercises bounded agency toward a shared human goal: it notices relevant
+signals, offers timely support, asks for clarification, surfaces patterns,
+and adapts to human responses.
+
+In this workshop, that agency is used to reduce friction caused by residual
+translation misunderstandings, embarrassment about admitting confusion,
+hesitation to ask questions, cognitive load across languages and turns,
+quieter participants becoming invisible, and facilitator blind spots about
+room-level understanding.
+
+Bud's agency is deliberately bounded by privacy, evidence, and human authority.
+It may support, summarize, invite, signal, recommend, or wait. It may not
+override a learner's intended meaning, expose private Bud content without
+permission, infer comprehension from silence, or make consequential workshop
+decisions for the facilitator.
+
+The partner thesis is demonstrated through private context-grounded support,
+periodic learner summaries, optional adaptive check-ins, participant-reported
+green/yellow/red comprehension signals, multilingual meaning repair,
+privacy-aware facilitator reports, correction handling, and explicit WAIT or
+NO_ACTION behavior when evidence is insufficient.
+
 ------------------------------------------------------------------------
 
 # 4. Prototype Objective
@@ -746,6 +772,38 @@ For a defined comprehension-check interval and named recap point, Bud may produc
 The rollup is a privacy-safe pattern signal, not a diagnosis of why participants responded as they did. It excludes raw private follow-up content and suppresses or generalizes detail where a small cohort could identify an individual.
 
 **Acceptance:** A facilitator can see an aggregate such as `6 of 10 responded: 4 green, 1 yellow, 1 red, 4 unknown`, plus a qualified recap-point pattern where privacy thresholds permit. Unknown is never treated as understanding or confusion.
+
+## FR-ME-011 --- Periodic learner progress summary
+
+At meaningful workshop entry or activity intervals, Bud may send the learner a
+brief private progress summary grounded in the current workshop prompt and
+recent permitted shared context. The summary states the current focus, offers
+one concrete next step, and invites the learner to report green, yellow, or
+red if they want to calibrate their understanding. It must not expose another
+learner's private content, claim that silence proves understanding, or interrupt
+the learner more often than the bounded cooldown.
+
+**Acceptance:** After joining, a learner receives at most one private summary
+within the first 90 seconds and no more than one summary per 90-second window.
+The message is labelled as a check-in summary and remains in the learner's
+private Bud thread. If the local reasoning provider is unavailable, the system
+shows a bounded fallback summary rather than failing the workshop.
+
+## FR-ROOM-009 --- Automatic facilitator room report
+
+When the facilitator view loads or reconnects, Bud must automatically present a
+privacy-aware room report using the latest participant-reported comprehension
+signals. The report includes the number of learners who responded, green,
+yellow, red, and unknown counts, and a qualified recap-point cluster when one
+is available. The existing manual room scan remains available for an explicit
+refresh.
+
+The report is an operational pattern signal, not a diagnosis. It must not
+include raw private Bud messages or infer a response from non-response.
+
+**Acceptance:** Opening `/facilitator` shows a current room report without the
+facilitator first asking Facil-Bud or pressing a scan button. The report remains
+aggregate-only and uses `unknown` for learners with no response.
 
 ------------------------------------------------------------------------
 

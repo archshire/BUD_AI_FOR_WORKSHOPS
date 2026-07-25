@@ -12,6 +12,7 @@ MODEL_PATH = os.environ.get(
     "/var/tmp/bud-qwen-model/Qwen3-1.7B.Q4_K_M.gguf",
 )
 PORT = int(os.environ.get("LLM_PORT", "8790"))
+HOST = os.environ.get("LLM_HOST", "127.0.0.1")
 THREADS = int(os.environ.get("LLM_THREADS", "12"))
 
 print("Loading local Qwen model:", MODEL_PATH, flush=True)
@@ -65,4 +66,4 @@ class Handler(BaseHTTPRequestHandler):
         return
 
 
-HTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+HTTPServer((HOST, PORT), Handler).serve_forever()

@@ -27,6 +27,7 @@ function createServer(options) {
     },
     events: []
   };
+  const summaryLastSentAt = {};
 
   seedWorkshop(runtime);
 
@@ -367,6 +368,56 @@ function createServer(options) {
       });
     }
 
+    if (req.method === "POST" && req.url === "/api/participant-summary") {
+      return readJson(req, res, async function (body) {
+        const participantId = String(body.participant_id || config.participant_id).trim();
+        const now = Date.now();
+        const lastSent = summaryLastSentAt[participantId] || 0;
+        if (now - lastSent < 90 * 1000) {
+          return sendJson(res, {
+            summary: { sent: false, reason: "cooldown" },
+            state: learnerState(runtime, participantId)
+          });
+        }
+
+        const snapshot = runtime.getStateSnapshot();
+        const recentSharedContext = snapshot.workshop.evidence_index
+          .filter(function (item) {
+            return item.scope !== "private_participant_ai" && item.text;
+          })
+          .slice(-5)
+          .map(function (item) { return item.text; });
+        const contextNote = recentSharedContext.length
+          ? "Recent shared workshop context:\n- " + recentSharedContext.join("\n- ")
+          : "There is no recent shared workshop context beyond the current prompt.";
+        const localReply = await askLocalBud({
+          workshopPrompt: currentPrompt(snapshot),
+          question: "Give the learner a brief private progress summary for a periodic check-in. " +
+            "Use only the current workshop prompt and recent shared context. Mention the current focus, " +
+            "one concrete next step, and invite green, yellow, or red self-reporting. Keep it to two short sentences.\n\n" +
+            contextNote
+        });
+        const fallbackText = "Quick check-in: the workshop is currently focused on " +
+          (currentPrompt(snapshot) || "the current activity") +
+          ". Keep working on that focus, and use the buttons or your private message if anything feels unclear.";
+        summaryLastSentAt[participantId] = now;
+        runtime.recordPrivateMessage({
+          message_id: "message-periodic-summary-" + now,
+          target_id: participantId,
+          sender: "bud",
+          message_type: "periodic_summary",
+          text: localReply ? localReply.text : fallbackText,
+          provider: localReply ? localReply.provider : "fallback",
+          latency_ms: localReply ? localReply.latency_ms : null,
+          created_at: new Date().toISOString()
+        });
+        sendJson(res, {
+          summary: { sent: true, message_type: "periodic_summary" },
+          state: learnerState(runtime, participantId)
+        });
+      });
+    }
+
     if (req.method === "POST" && req.url === "/api/facilitator-message") {
       return readJson(req, res, async function (body) {
         const text = String(body.text || "").trim();
@@ -643,6 +694,8 @@ function facilitatorState(runtime) {
   const topRecapPoint = Object.keys(difficultPoints).sort(function (left, right) {
     return difficultPoints[right] - difficultPoints[left];
   })[0] || null;
+  const responded = rollup.green + rollup.yellow + rollup.red;
+  const total = responded + rollup.unknown;
   return {
     workshop: {
       title: state.workshop.title,
@@ -655,6 +708,16 @@ function facilitatorState(runtime) {
       most_flagged_recap_point: topRecapPoint,
       most_flagged_count: topRecapPoint ? difficultPoints[topRecapPoint] : 0
     }),
+    room_report: {
+      generated_at: new Date().toISOString(),
+      total_participants: total,
+      responded: responded,
+      text: total
+        ? "Room report: " + responded + " of " + total + " learners reported comprehension - " +
+          rollup.green + " green, " + rollup.yellow + " yellow, " + rollup.red + " red, " + rollup.unknown + " unknown." +
+          (topRecapPoint ? " Most yellow/red reports cluster around " + topRecapPoint + "." : "")
+        : "Room report: no learner comprehension responses have been recorded yet."
+    },
     groups: Object.keys(state.groups).map(function (groupId) {
       const group = state.groups[groupId];
       return {

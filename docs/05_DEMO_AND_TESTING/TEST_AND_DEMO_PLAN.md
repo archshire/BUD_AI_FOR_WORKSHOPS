@@ -127,6 +127,20 @@ Proves:
 - The policy enforces a ten-minute cooldown and does not re-invite after dismissal during the same workshop stage.
 - A workshop stage change resets the cooldown.
 
+### Scene 2C - Periodic Learner Summary
+
+After a learner joins, Bud privately provides a short progress summary based
+on the current workshop prompt and recent shared context. The learner can use
+the green/yellow/red controls to report understanding or continue privately.
+
+Proves:
+
+- The learner receives useful orientation without needing to ask an open-ended
+  question first.
+- The summary stays in the learner's private Bud thread.
+- The 90-second cooldown prevents repetitive interruption.
+- Provider failure falls back to a bounded, clearly scoped summary.
+
 ### Scene 3 - US Meaning Repair
 
 Two learners appear aligned by translation but differ in intended meaning.
@@ -146,6 +160,20 @@ Proves:
 - Bud can synthesize room state.
 - Raw private content remains hidden.
 - Recommendation leaves consequential decision with facilitator.
+
+### Scene 4B - Automatic Room Report
+
+Open or reconnect the facilitator view after comprehension responses exist.
+Bud immediately presents the latest aggregate report, including response
+denominator, green/yellow/red/unknown counts, and any qualified difficult
+recap point. The manual scan remains available as an explicit refresh.
+
+Proves:
+
+- The facilitator receives room awareness without first prompting the AI.
+- No response remains unknown.
+- The report contains aggregate operational evidence, not private learner
+  messages or a diagnosis.
 
 ### Scene 4A - Facil-Bud Private Support
 
