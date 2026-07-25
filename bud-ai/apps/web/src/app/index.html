@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bud AI Learner</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="workspace" aria-labelledby="workshop-title">
+        <div class="topbar">
+          <div>
+            <p class="eyebrow">Bud AI</p>
+            <h1 id="workshop-title">BUD AI Demo Workshop (participant)</h1>
+          </div>
+          <div class="status" id="phase">active</div>
+        </div>
+
+        <section class="prompt-band" aria-labelledby="prompt-title">
+          <div>
+            <p class="eyebrow">Current Prompt</p>
+            <h2 id="prompt-title">Prototype success criteria</h2>
+          </div>
+          <p id="prompt-text"></p>
+        </section>
+
+        <section class="room-controls" aria-labelledby="room-title">
+          <div class="section-head">
+            <h2 id="room-title">Live workshop connection</h2>
+            <span id="connection-status" role="status">Not connected</span>
+          </div>
+          <div class="room-form">
+            <label for="room-input">Workshop room</label>
+            <input id="room-input" value="bud-demo-room">
+            <label for="name-input">Display name</label>
+            <input id="name-input" value="Learner 1">
+            <label for="language-input">Translate to</label>
+            <select id="language-input">
+              <option value="es">Spanish</option>
+              <option value="zh">Chinese (Simplified)</option>
+              <option value="my">Burmese</option>
+              <option value="fr">French</option>
+              <option value="en">English</option>
+            </select>
+            <button class="primary-action" id="connect-button">Join workshop</button>
+            <button class="secondary-action" id="microphone-button" disabled>Start microphone</button>
+          </div>
+          <div class="mic-status" role="status" aria-label="Microphone input level">
+            <span id="mic-status-text">Microphone off</span>
+            <div class="mic-meter" id="mic-meter" aria-hidden="true">
+              <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+            </div>
+          </div>
+          <section class="captions" aria-labelledby="captions-title">
+            <div class="section-head">
+              <h3 id="captions-title">Live captions</h3>
+              <button class="icon-button" id="clear-captions" title="Clear live captions" aria-label="Clear live captions">×</button>
+            </div>
+            <div class="caption-list" id="caption-list" aria-live="polite" aria-atomic="false">
+              <p class="empty">Captions will appear when speech is detected.</p>
+            </div>
+          </section>
+          <div class="room-feed" id="room-feed" aria-live="polite"></div>
+        </section>
+
+        <section class="activity" aria-labelledby="activity-title">
+          <div class="section-head">
+            <h2 id="activity-title">Learner's Bud Thread</h2>
+            <button class="icon-button" id="observe-button" title="Run adaptive check-in scan" aria-label="Run adaptive check-in scan">⌁</button>
+          </div>
+          <div class="messages" id="messages" aria-live="polite"></div>
+        </section>
+
+        <section class="shared-room" aria-labelledby="shared-room-title">
+          <div class="section-head">
+            <h2 id="shared-room-title">Shared workshop discussion</h2>
+            <span class="privacy-pill">Visible to the room</span>
+          </div>
+          <div class="presence" aria-label="Participants in the room">
+            <span class="eyebrow">In the room</span>
+            <span id="presence-list">No other learners connected</span>
+          </div>
+          <div class="shared-messages" id="shared-messages" aria-live="polite"></div>
+          <form id="shared-message-form" class="shared-composer">
+            <label for="shared-message-input">Post to workshop</label>
+            <div>
+              <input id="shared-message-input" placeholder="Share an idea or ask the group.">
+              <button type="submit" class="secondary-action">Post</button>
+            </div>
+          </form>
+        </section>
+
+      </section>
+
+      <aside class="bud-panel" aria-labelledby="bud-panel-title">
+        <div class="panel-head">
+          <div>
+            <p class="eyebrow">ME</p>
+            <h2 id="bud-panel-title">Learner's Bud</h2>
+          </div>
+          <img class="bud-avatar" id="bud-avatar" src="/assets/bud-pics/bud-1.png" alt="Bud">
+          <div class="privacy-pill">Private</div>
+        </div>
+
+        <div class="actions">
+          <button class="primary-action" id="help-button">Help, I'm Stuck</button>
+          <button class="secondary-action" id="dismiss-button" title="Hide the most recent Bud message from this view">Hide latest</button>
+        </div>
+
+        <section class="comprehension-actions" aria-label="Comprehension check">
+          <button class="comprehension-button comprehension-green" data-response="green" title="Green: got it" aria-label="Green: got it"><span aria-hidden="true">👍</span></button>
+          <button class="comprehension-button comprehension-yellow" data-response="yellow" title="Yellow: somewhat clear" aria-label="Yellow: somewhat clear"><span aria-hidden="true">🤔</span></button>
+          <button class="comprehension-button comprehension-red" data-response="red" title="Help! I'm Stuck!" aria-label="Help! I'm Stuck!"><span aria-hidden="true">!</span></button>
+        </section>
+
+        <form id="message-form" class="composer">
+          <label for="message-input" id="message-label">Message Learner's Bud</label>
+          <textarea id="message-input" rows="4" placeholder="Ask privately or describe what feels unclear."></textarea>
+          <button type="submit">Send</button>
+        </form>
+
+        <dl class="state-list">
+          <div>
+            <dt>Understanding</dt>
+            <dd id="understanding">unknown</dd>
+          </div>
+          <div>
+            <dt>Participation</dt>
+            <dd id="participation">present</dd>
+          </div>
+          <div>
+            <dt>Reported comprehension</dt>
+            <dd id="comprehension">unknown</dd>
+          </div>
+        </dl>
+      </aside>
+    </main>
+
+    <script src="/vendor/livekit-client.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>

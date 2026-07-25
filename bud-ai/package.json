@@ -1,0 +1,20 @@
+{
+  "name": "bud-ai",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bud AI LiveKit-first MVP for real-time multilingual workshops.",
+  "main": "apps/server/src/index.js",
+  "scripts": {
+    "demo": "node scripts/run-demo.js",
+    "test": "node tests/run-tests.js",
+    "start": "node apps/server/src/index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "livekit-client": "^2.21.0",
+    "livekit-server-sdk": "^2.17.0"
+  }
+}

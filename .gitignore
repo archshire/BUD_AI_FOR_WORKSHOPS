@@ -1,0 +1,37 @@
+# Node dependencies and build output
+**/node_modules/
+**/dist/
+**/build/
+
+# Python caches and local environments
+**/__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Runtime logs, recordings, and session data
+*.log
+logs/
+runtime-data/
+session-data/
+
+# Downloaded model weights and local caches
+models/
+model-cache/
+*.gguf
+*.safetensors
+*.bin
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+

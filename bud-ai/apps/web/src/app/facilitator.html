@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bud AI Facilitator</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body class="facilitator-page">
+    <main class="facilitator-shell">
+      <header class="topbar facilitator-topbar">
+        <div>
+          <p class="eyebrow">Bud AI / The Room</p>
+          <h1 id="workshop-title">BUD AI Demo Workshop (Facilitator)</h1>
+        </div>
+        <div class="status" id="phase">active</div>
+      </header>
+
+      <section class="prompt-band" aria-labelledby="prompt-title">
+        <div>
+          <p class="eyebrow">Current Prompt</p>
+          <h2 id="prompt-title">Workshop prompt</h2>
+        </div>
+        <p id="prompt-text"></p>
+      </section>
+
+      <section class="facilitator-connect" aria-labelledby="connection-title">
+        <div class="section-head">
+          <h2 id="connection-title">Live workshop connection</h2>
+          <span id="connection-status" role="status">Not connected</span>
+        </div>
+        <div class="facilitator-connect-form">
+          <label for="room-input">Workshop room</label>
+          <input id="room-input" value="bud-demo-room">
+          <button class="primary-action" id="connect-button">Open facilitator room</button>
+          <button class="secondary-action" id="facilitator-microphone-button" disabled>Start microphone</button>
+        </div>
+        <div class="mic-status" role="status">
+          <span id="facilitator-mic-status">Microphone off</span>
+          <div class="mic-meter" id="facilitator-mic-meter" aria-label="Facilitator microphone input level">
+            <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+          </div>
+        </div>
+        <div class="room-feed" id="room-feed" aria-live="polite"></div>
+      </section>
+
+      <section class="room-management" aria-labelledby="room-management-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Teacher controls</p>
+            <h2 id="room-management-title">Workshop rooms</h2>
+          </div>
+          <span class="privacy-pill">Teacher managed</span>
+        </div>
+        <form id="create-room-form" class="management-form">
+          <label for="managed-room-name">Create or open room</label>
+          <div>
+            <input id="managed-room-name" value="bud-demo-room" placeholder="e.g. group-a">
+            <button class="primary-action" type="submit">Start room</button>
+          </div>
+        </form>
+        <form id="allocate-form" class="management-form">
+          <label for="allocation-participant">Allocate participant</label>
+          <div class="allocation-fields">
+            <input id="allocation-participant" placeholder="Learner ID (optional)">
+            <input id="allocation-name" placeholder="Display name">
+            <select id="allocation-room" aria-label="Room for participant"></select>
+            <button class="secondary-action" type="submit">Allocate</button>
+          </div>
+        </form>
+        <div id="room-list" class="room-list" aria-live="polite"></div>
+      </section>
+
+      <section class="facil-bud-panel" aria-labelledby="facil-bud-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">ME / Facilitator</p>
+            <h2 id="facil-bud-title">Facil-Bud</h2>
+          </div>
+          <img class="bud-avatar" id="facil-bud-avatar" src="/assets/facil-bud-owl.jpeg" alt="Facil-Bud owl">
+          <span class="privacy-pill">Private to teacher</span>
+        </div>
+        <div class="facil-bud-messages" id="facil-bud-messages" aria-live="polite">
+          <p class="empty">Facil-Bud has not sent a private message yet.</p>
+        </div>
+        <form id="facil-bud-form" class="facil-bud-composer">
+          <label for="facil-bud-input">Ask Facil-Bud</label>
+          <div>
+            <textarea id="facil-bud-input" rows="3" placeholder="Ask for a room-level summary or help with the current workshop prompt."></textarea>
+            <button class="primary-action" type="submit">Send to Facil-Bud</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="dashboard-grid" aria-label="Workshop summary">
+        <section class="dashboard-panel" aria-labelledby="rollup-title">
+          <div class="section-head">
+            <h2 id="rollup-title">Comprehension rollup</h2>
+            <span class="privacy-pill">Aggregate only</span>
+          </div>
+          <button class="secondary-action scan-button" id="scan-button">Scan room signals</button>
+          <div class="rollup-grid">
+            <div class="rollup green"><strong id="green-count">0</strong><span>Green</span></div>
+            <div class="rollup yellow"><strong id="yellow-count">0</strong><span>Yellow</span></div>
+            <div class="rollup red"><strong id="red-count">0</strong><span>Red</span></div>
+            <div class="rollup unknown"><strong id="unknown-count">0</strong><span>Unknown</span></div>
+          </div>
+          <p class="rollup-note" id="most-flagged-point">No yellow/red cluster identified yet.</p>
+        </section>
+
+        <section class="dashboard-panel" aria-labelledby="evidence-title">
+          <div class="section-head">
+            <h2 id="evidence-title">Evidence boundary</h2>
+            <span class="privacy-pill">Private Bud protected</span>
+          </div>
+          <dl class="state-list compact-state-list">
+            <div><dt>Recorded evidence</dt><dd id="evidence-total">0</dd></div>
+            <div><dt>Shared evidence</dt><dd id="evidence-shared">0</dd></div>
+            <div><dt>Private items withheld</dt><dd id="evidence-private">0</dd></div>
+          </dl>
+        </section>
+      </section>
+
+      <section class="dashboard-panel" aria-labelledby="participants-title">
+        <div class="section-head">
+          <h2 id="participants-title">Participants in the room</h2>
+          <span id="participant-count">0 learners</span>
+        </div>
+        <div class="participant-table-wrap">
+          <table class="participant-table">
+            <thead><tr><th>Participant</th><th>Presence</th><th>Comprehension</th><th>Action</th></tr></thead>
+            <tbody id="participant-list"></tbody>
+          </table>
+          <p class="empty" id="participants-empty">No learner state has been recorded yet.</p>
+        </div>
+      </section>
+
+      <section class="dashboard-panel" aria-labelledby="signals-title">
+        <div class="section-head">
+          <h2 id="signals-title">Bud signals</h2>
+          <span>Operational patterns, not diagnoses</span>
+        </div>
+        <div class="signals" id="signals"></div>
+      </section>
+    </main>
+    <script src="/vendor/livekit-client.js"></script>
+    <script src="/facilitator.js"></script>
+  </body>
+</html>
