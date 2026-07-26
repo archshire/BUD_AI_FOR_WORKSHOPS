@@ -1248,6 +1248,8 @@ Must support:
 -   current workshop context;
 -   a bounded, scrollable Facil-Bud conversation with an always-available
     composer;
+-   facilitator voice turns transcribed through the same private Facil-Bud
+    reasoning path as typed questions;
 -   participant/group operational state sufficient for MVP;
 -   attention signals;
 -   pattern synthesis;

@@ -15,6 +15,7 @@ const EVENT_TYPES = [
   "participant_correction",
   "participation_observation",
   "comprehension_check_response",
+  "task_completed",
   "ai_partner_request",
   "permission_request",
   "permission_response",

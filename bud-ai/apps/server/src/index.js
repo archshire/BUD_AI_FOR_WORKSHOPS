@@ -9,6 +9,13 @@ const WEB_ROOT = path.resolve(__dirname, "../../web/src/app");
 
 function createServer(options) {
   const runtime = createBudRuntime();
+  runtime.workshopControl = {
+    duration_seconds: 30 * 60,
+    status: "not_started",
+    started_at: null,
+    elapsed_seconds: 0,
+    updated_at: new Date().toISOString()
+  };
   const config = Object.assign({
     participant_id: "learner-1"
   }, options || {});
@@ -162,6 +169,11 @@ function createServer(options) {
     if (req.method === "GET" && req.url.indexOf("/api/facilitator/source-pack") === 0) {
       const roomName = new URL(req.url, "http://localhost").searchParams.get("room") || "bud-demo-room";
       return sendJson(res, sourcePackStore.get(roomName));
+    }
+
+    if (req.method === "GET" && req.url.indexOf("/api/workshop-material") === 0) {
+      const roomName = new URL(req.url, "http://localhost").searchParams.get("room") || "bud-demo-room";
+      return sendJson(res, sourcePackStore.pages(roomName));
     }
 
     if (req.method === "POST" && req.url === "/api/facilitator/source-material") {
@@ -328,8 +340,47 @@ function createServer(options) {
       return sendJson(res, facilitatorState(runtime));
     }
 
+    if (req.method === "GET" && req.url === "/api/workshop-control") {
+      return sendJson(res, timerSnapshot(runtime.workshopControl));
+    }
+
+    if (req.method === "POST" && req.url === "/api/facilitator/timer") {
+      return readJson(req, res, function (body) {
+        const control = runtime.workshopControl;
+        const action = String(body.action || "").trim();
+        timerSnapshot(control);
+        if (action === "start") {
+          if (control.status === "not_started" || control.status === "paused") {
+            control.started_at = new Date(Date.now() - control.elapsed_seconds * 1000).toISOString();
+          }
+          control.status = "running";
+        } else if (action === "pause" && control.status === "running") {
+          timerSnapshot(control);
+          control.status = "paused";
+        } else if (action === "end") {
+          timerSnapshot(control);
+          control.status = "ended";
+          control.elapsed_seconds = control.duration_seconds;
+        } else if (action === "reset") {
+          control.status = "not_started";
+          control.started_at = null;
+          control.elapsed_seconds = 0;
+        } else {
+          return sendJson(res, { error: "Timer action must be start, pause, end, or reset" }, 400);
+        }
+        control.updated_at = new Date().toISOString();
+        sendJson(res, { timer: timerSnapshot(control), state: facilitatorState(runtime) });
+      });
+    }
+
     if (req.method === "GET" && req.url === "/api/topview/state") {
-      return sendJson(res, topviewState(diagnostics, roomDirectory));
+      return collectServiceHealth().then(function (health) {
+        sendJson(res, topviewState(diagnostics, roomDirectory, health));
+      });
+    }
+
+    if (req.method === "GET" && req.url === "/api/health") {
+      return sendJson(res, { status: "ok", service: "bud" });
     }
 
     if (req.method === "POST" && req.url === "/api/topview/presence") {
@@ -450,6 +501,18 @@ function createServer(options) {
             text: localReply.text,
             provider: localReply.provider,
             latency_ms: localReply.latency_ms,
+            created_at: new Date().toISOString()
+          });
+        } else {
+          runtime.recordPrivateMessage({
+            message_id: "message-bud-fallback-" + Date.now(),
+            scope: "private_participant_ai",
+            target_id: participantId,
+            sender: "bud",
+            text: "Here is a grounded pointer while Bud reconnects: the workshop is focused on " +
+              (currentPrompt(runtime.getStateSnapshot()) || "the current activity") +
+              ". Start by naming the user goal, describing the desired outcome, and identifying evidence that would show it worked. Which part feels unclear?",
+            provider: "fallback",
             created_at: new Date().toISOString()
           });
         }
@@ -633,9 +696,24 @@ function createServer(options) {
           actor: { actor_type: "participant", participant_id: participantId },
           payload: {
             checkin_id: "ui-recap-001",
-            recap_point_id: "ui-facilitator-prompt-001",
+            recap_point_id: body.page_id || "ui-facilitator-prompt-001",
             response: body.response
           }
+        }));
+        sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId) });
+      });
+    }
+
+    if (req.method === "POST" && req.url === "/api/task-complete") {
+      return readJson(req, res, function (body) {
+        const participantId = body.participant_id || config.participant_id;
+        const result = runtime.handleEvent(baseEvent({
+          event_id: "ui-task-completed-" + Date.now(),
+          type: "task_completed",
+          source: "web",
+          privacy_scope: "private_participant_ai",
+          actor: { actor_type: "participant", participant_id: participantId },
+          payload: { task_id: String(body.task_id || ""), page_id: String(body.page_id || "") }
         }));
         sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId) });
       });
@@ -707,7 +785,54 @@ function recordTranscriptionDiagnostic(diagnostics, participantId, timings, prov
   diagnostics.events = diagnostics.events.slice(0, 30);
 }
 
-function topviewState(diagnostics, roomDirectory) {
+function checkHttpHealth(name, target, allowAnyResponse) {
+  const started = Date.now();
+  return new Promise(function (resolve) {
+    const request = http.get({
+      hostname: target.hostname,
+      port: target.port,
+      path: target.path,
+      timeout: 1500
+    }, function (response) {
+      response.resume();
+      response.on("end", function () {
+        const healthy = allowAnyResponse ? response.statusCode < 500 : response.statusCode === 200;
+        resolve({
+          name: name,
+          status: healthy ? "healthy" : "unhealthy",
+          latency_ms: Date.now() - started,
+          detail: healthy ? "ready" : "HTTP " + response.statusCode
+        });
+      });
+    });
+    request.on("timeout", function () { request.destroy(new Error("health check timed out")); });
+    request.on("error", function (error) {
+      resolve({ name: name, status: "unhealthy", latency_ms: Date.now() - started, detail: error.message });
+    });
+  });
+}
+
+function serviceTarget(host, port, path) {
+  return { hostname: host || "127.0.0.1", port: Number(port), path: path };
+}
+
+function collectServiceHealth() {
+  const livekitUrl = new URL(process.env.LIVEKIT_SERVER_URL || process.env.LIVEKIT_URL || "http://127.0.0.1:7880");
+  return Promise.all([
+    { name: "bud", result: Promise.resolve({ name: "bud", status: "healthy", latency_ms: 0, detail: "ready" }) },
+    { name: "livekit", result: checkHttpHealth("livekit", serviceTarget(livekitUrl.hostname, livekitUrl.port || 80, "/"), true) },
+    { name: "whisper", result: checkHttpHealth("whisper", serviceTarget(process.env.STT_HOST, process.env.STT_PORT || 8787, "/health"), false) },
+    { name: "translation", result: checkHttpHealth("translation", serviceTarget(process.env.TRANSLATION_HOST, process.env.TRANSLATION_PORT || 8788, "/health"), false) },
+    { name: "qwen", result: checkHttpHealth("qwen", serviceTarget(process.env.LLM_HOST, process.env.LLM_PORT || 8790, "/health"), false) }
+  ].map(function (service) { return service.result; })).then(function (results) {
+    return results.reduce(function (health, result) {
+      health[result.name] = result;
+      return health;
+    }, {});
+  });
+}
+
+function topviewState(diagnostics, roomDirectory, health) {
   const participants = Object.keys(diagnostics.connections).map(function (participantId) {
     return diagnostics.connections[participantId];
   });
@@ -729,7 +854,24 @@ function topviewState(diagnostics, roomDirectory) {
       translation: Boolean(process.env.TRANSLATION_HOST || process.env.TRANSLATION_PORT),
       qwen: Boolean(process.env.LLM_HOST || process.env.LLM_PORT)
     },
+    services: health || {},
     events: diagnostics.events
+  };
+}
+
+function timerSnapshot(control) {
+  if (control.status === "running" && control.started_at) {
+    control.elapsed_seconds = Math.min(control.duration_seconds,
+      Math.floor((Date.now() - Date.parse(control.started_at)) / 1000));
+    if (control.elapsed_seconds >= control.duration_seconds) control.status = "ended";
+  }
+  return {
+    duration_seconds: control.duration_seconds,
+    elapsed_seconds: control.elapsed_seconds,
+    remaining_seconds: Math.max(0, control.duration_seconds - control.elapsed_seconds),
+    status: control.status,
+    started_at: control.started_at,
+    updated_at: control.updated_at
   };
 }
 
@@ -761,6 +903,7 @@ function learnerState(runtime, participantId) {
       return message.scope === "group_shared";
     }),
     participant: state.participants[participantId] || null,
+    workshop_control: timerSnapshot(runtime.workshopControl),
     tool_results: state.tool_results.slice(-8)
   };
 }
@@ -802,6 +945,7 @@ function facilitatorState(runtime) {
       prompt: currentPrompt(state),
       supported_languages: state.workshop.supported_languages
     },
+    workshop_control: timerSnapshot(runtime.workshopControl),
     participants,
     rollup: Object.assign({}, rollup, {
       most_flagged_recap_point: topRecapPoint,

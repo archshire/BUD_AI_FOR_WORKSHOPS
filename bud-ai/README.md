@@ -109,7 +109,7 @@ bounded client panels.
 - Local faster-whisper transcription and NLLB translation services for
   English, Spanish, Simplified Chinese, Burmese, French, and Thai.
 - Local Qwen3-1.7B text response service for private Bud questions on port
-  8790; replies are grounded with the current workshop prompt and run with
+  8790; replies are grounded with the current workshop documents and run with
   Qwen3's non-thinking mode for lower latency.
 - Facil-Bud uses the same local Qwen service for facilitator-private questions;
   learner Bud and Facil-Bud remain separate privacy scopes.

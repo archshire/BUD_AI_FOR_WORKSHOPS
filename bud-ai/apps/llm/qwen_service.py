@@ -27,6 +27,16 @@ def clean_response(text):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path != "/health":
+            return self.send_error(404)
+        body = json.dumps({"status": "ok", "service": "qwen", "model": os.path.basename(MODEL_PATH)}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_POST(self):
         if self.path != "/chat":
             return self.send_error(404)

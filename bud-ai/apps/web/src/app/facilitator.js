@@ -9,12 +9,12 @@ const elements = {
   microphoneButton: document.getElementById("facilitator-microphone-button"),
   microphoneStatus: document.getElementById("facilitator-mic-status"),
   microphoneMeter: document.getElementById("facilitator-mic-meter"),
-  mediaStatus: document.getElementById("facilitator-media-status"),
-  mainMedia: document.getElementById("facilitator-main-media"),
-  mediaStrip: document.getElementById("facilitator-media-strip"),
-  cameraButton: document.getElementById("facilitator-camera-button"),
-  screenButton: document.getElementById("facilitator-screen-button"),
-  participantPermissionButton: document.getElementById("participant-permission-button"),
+  timer: document.getElementById("facilitator-timer"),
+  timerStatus: document.getElementById("facilitator-timer-status"),
+  timerStart: document.getElementById("timer-start"),
+  timerPause: document.getElementById("timer-pause"),
+  timerEnd: document.getElementById("timer-end"),
+  timerReset: document.getElementById("timer-reset"),
   scanButton: document.getElementById("scan-button"),
   roomFeed: document.getElementById("room-feed"),
   participantCount: document.getElementById("participant-count"),
@@ -51,9 +51,10 @@ const FACILITATOR_SILENCE_TIMEOUT_MS = 15000;
 function boot() {
   elements.connectButton.addEventListener("click", connectWorkshop);
   elements.microphoneButton.addEventListener("click", startFacilitatorMicrophone);
-  elements.cameraButton.addEventListener("click", toggleFacilitatorCamera);
-  elements.screenButton.addEventListener("click", toggleFacilitatorScreen);
-  elements.participantPermissionButton.addEventListener("click", toggleParticipantPermission);
+  elements.timerStart.addEventListener("click", function () { sendTimerAction("start"); });
+  elements.timerPause.addEventListener("click", function () { sendTimerAction("pause"); });
+  elements.timerEnd.addEventListener("click", function () { sendTimerAction("end"); });
+  elements.timerReset.addEventListener("click", function () { sendTimerAction("reset"); });
   elements.scanButton.addEventListener("click", scanRoom);
   elements.facilBudForm.addEventListener("submit", sendToFacilBud);
   elements.facilBudForm.addEventListener("keydown", submitOnEnter);
@@ -122,6 +123,20 @@ function refreshRooms() {
     .then(function (response) { return response.json(); })
     .then(function (payload) { renderRooms(payload.rooms || []); })
     .catch(function () { elements.roomList.textContent = "Room management unavailable"; });
+}
+
+function sendTimerAction(action) {
+  fetch("/api/facilitator/timer", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action: action })
+  })
+    .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
+    .then(function (result) {
+      if (!result.ok) throw new Error(result.body.error || "Unable to update timer");
+      renderState(result.body.state);
+    })
+    .catch(function (error) { setConnectionStatus(error.message); });
 }
 
 function refreshSourcePack() {
@@ -279,8 +294,6 @@ function connectWorkshop() {
     .then(function (result) {
       if (!result.ok) throw new Error(result.body.error || "Unable to get facilitator token");
       livekitRoom = new window.LivekitClient.Room({ adaptiveStream: true, dynacast: true });
-      livekitRoom.on(window.LivekitClient.RoomEvent.TrackSubscribed, function (track, publication, participant) { renderRemoteMedia(track, publication, participant); });
-      livekitRoom.on(window.LivekitClient.RoomEvent.TrackUnsubscribed, function (track, publication) { removeMediaTrack(track, publication); });
       livekitRoom.on(window.LivekitClient.RoomEvent.ParticipantConnected, function (participant) {
         if (participant.identity.indexOf("facilitator") !== 0) {
           connectedLearners[participant.identity] = { name: participant.name || participant.identity, identity: participant.identity };
@@ -305,10 +318,6 @@ function connectWorkshop() {
       setConnectionStatus("Connected");
       elements.connectButton.textContent = "Connected";
       elements.microphoneButton.disabled = false;
-      elements.cameraButton.disabled = false;
-      elements.screenButton.disabled = false;
-      elements.participantPermissionButton.disabled = false;
-      refreshMediaState();
       reportTopviewPresence(true, false);
       renderConnectedLearners();
     })
@@ -358,19 +367,47 @@ function removeMediaTrack(track, publication) {
 
 function toggleFacilitatorCamera() {
   if (!livekitRoom) return;
-  const enabled = livekitRoom.localParticipant.isCameraEnabled;
+  const enabled = Boolean(livekitRoom.localParticipant.isCameraEnabled);
+  elements.cameraButton.disabled = true;
+  elements.mediaStatus.textContent = enabled ? "Stopping camera..." : "Requesting camera permission...";
   livekitRoom.localParticipant.setCameraEnabled(!enabled).then(function () {
     elements.cameraButton.textContent = enabled ? "Start camera" : "Stop camera";
+    elements.cameraButton.disabled = false;
+    elements.mediaStatus.textContent = enabled ? "Camera off" : "Camera starting...";
     if (!enabled) {
-      const publication = livekitRoom.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.Camera);
-      if (publication && publication.track) elements.mediaStrip.appendChild(publication.track.attach());
+      const publication = livekitRoom.localParticipant.getTrackPublication("camera");
+      attachLocalCameraTrack(publication);
+    } else {
+      elements.mediaStatus.textContent = "Camera off";
     }
-  }).catch(function (error) { setConnectionStatus("Camera unavailable: " + error.message); });
+  }).catch(function (error) {
+    elements.cameraButton.disabled = false;
+    elements.mediaStatus.textContent = "Camera unavailable";
+    setConnectionStatus("Camera unavailable: " + error.message);
+  });
+}
+
+function attachLocalCameraTrack(publication) {
+  if (!publication || publication.source !== window.LivekitClient.Track.Source.Camera || !publication.track) return;
+  const existing = elements.mediaStrip.querySelector("[data-local-camera='true']");
+  if (existing) return;
+  const element = publication.track.attach();
+  element.dataset.localCamera = "true";
+  element.autoplay = true;
+  element.playsInline = true;
+  element.muted = true;
+  elements.mediaStrip.appendChild(element);
+  elements.mediaStatus.textContent = "Camera active";
+}
+
+function removeLocalCameraTrack(publication) {
+  if (!publication || publication.source !== window.LivekitClient.Track.Source.Camera) return;
+  elements.mediaStrip.querySelectorAll("[data-local-camera='true']").forEach(function (element) { element.remove(); });
 }
 
 function toggleFacilitatorScreen() {
   if (!livekitRoom) return;
-  const sharing = Boolean(livekitRoom.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.ScreenShare));
+  const sharing = Boolean(livekitRoom.localParticipant.getTrackPublication("screen_share"));
   const body = { room_name: elements.roomInput.value.trim(), participant_id: "facilitator-1", display_name: "Teacher", role: "facilitator" };
   mediaRequest(sharing ? "/api/livekit/media/release" : "/api/livekit/media/claim", body).then(function (result) {
     if (!result.ok) throw new Error(result.payload.error || "Screen sharing is unavailable");
@@ -394,13 +431,13 @@ function startFacilitatorMicrophone() {
     return;
   }
   livekitRoom.localParticipant.setMicrophoneEnabled(true)
-    .then(function () {
+    .then(function (publication) {
       elements.microphoneButton.textContent = "Stop talking";
       elements.microphoneButton.disabled = false;
       elements.microphoneStatus.textContent = "Listening for your message...";
       reportTopviewPresence(true, true);
-      startFacilitatorMicMeter();
-      startFacilitatorSpeechCapture();
+      startFacilitatorMicMeter(publication);
+      startFacilitatorSpeechCapture(publication);
       appendRoomMessage("Facil-Bud is listening. Press Stop talking when you are finished.");
     })
     .catch(function (error) {
@@ -424,7 +461,11 @@ function stopFacilitatorTalking(reason) {
   elements.microphoneButton.textContent = "Talk to Facil-Bud";
   elements.microphoneStatus.textContent = "Microphone off";
   reportTopviewPresence(true, false);
-  appendRoomMessage(reason === "silence" ? "Facil-Bud stopped listening after 15 seconds of silence." : "Facil-Bud stopped listening.");
+  appendRoomMessage(reason === "silence"
+    ? "Facil-Bud stopped listening after 15 seconds of silence."
+    : reason === "error"
+      ? "Facil-Bud could not start microphone transcription."
+      : "Facil-Bud stopped listening.");
 }
 
 function resetFacilitatorSilenceTimeout() {
@@ -450,10 +491,12 @@ function reportTopviewPresence(connected, microphoneActive) {
   }).catch(function () {});
 }
 
-function startFacilitatorMicMeter() {
+function startFacilitatorMicMeter(publication) {
   if (!window.AudioContext) return;
-  const publication = livekitRoom.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.Microphone);
-  const publishedTrack = publication && publication.track && publication.track.mediaStreamTrack;
+  const activePublication = publication || (livekitRoom.localParticipant.getTrackPublication
+    ? livekitRoom.localParticipant.getTrackPublication("microphone")
+    : null);
+  const publishedTrack = activePublication && activePublication.track && activePublication.track.mediaStreamTrack;
   if (!publishedTrack) return;
   const audioContext = new window.AudioContext();
   const source = audioContext.createMediaStreamSource(new MediaStream([publishedTrack]));
@@ -480,13 +523,22 @@ function startFacilitatorMicMeter() {
   renderMeter();
 }
 
-function startFacilitatorSpeechCapture() {
-  if (!window.MediaRecorder || facilitatorSpeechActive) return;
-  const publication = livekitRoom.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.Microphone);
-  const mediaTrack = publication && publication.track && publication.track.mediaStreamTrack;
+function startFacilitatorSpeechCapture(publication) {
+  if (facilitatorSpeechActive) return;
+  if (!window.MediaRecorder) {
+    setConnectionStatus("This browser does not support microphone recording.");
+    stopFacilitatorTalking("error");
+    return;
+  }
+  const activePublication = publication || (livekitRoom.localParticipant.getTrackPublication
+    ? livekitRoom.localParticipant.getTrackPublication("microphone")
+    : null);
+  const mediaTrack = activePublication && activePublication.track && activePublication.track.mediaStreamTrack;
   const streamPromise = mediaTrack
     ? Promise.resolve(new MediaStream([mediaTrack]))
-    : navigator.mediaDevices.getUserMedia({ audio: true });
+    : navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+      ? navigator.mediaDevices.getUserMedia({ audio: true })
+      : Promise.reject(new Error("Browser microphone access is unavailable. Use HTTPS or localhost and allow microphone permission."));
   streamPromise.then(function (stream) {
     facilitatorSpeechStream = stream;
     facilitatorSpeechActive = true;
@@ -499,14 +551,23 @@ function startFacilitatorSpeechCapture() {
 
 function recordFacilitatorSpeechChunk() {
   if (!facilitatorSpeechActive) return;
-  facilitatorSpeechRecorder = new MediaRecorder(facilitatorSpeechStream, { mimeType: "audio/webm" });
+  const mimeType = ["audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"].find(function (type) {
+    return !MediaRecorder.isTypeSupported || MediaRecorder.isTypeSupported(type);
+  });
+  try {
+    facilitatorSpeechRecorder = new MediaRecorder(facilitatorSpeechStream, mimeType ? { mimeType: mimeType } : undefined);
+  } catch (error) {
+    setConnectionStatus("Microphone recording format unavailable: " + error.message);
+    stopFacilitatorTalking("error");
+    return;
+  }
   facilitatorSpeechRecorder.ondataavailable = function (event) {
     if (!event.data || event.data.size === 0) return;
     const speechSequence = ++facilitatorSpeechSequence;
     fetch("/api/transcribe", {
       method: "POST",
       headers: {
-        "Content-Type": "audio/webm",
+        "Content-Type": mimeType || "audio/webm",
         "X-Participant-Id": "facilitator-1",
         "X-Native-Language": elements.nativeLanguageInput.value,
         "X-Target-Language": "en",
@@ -522,6 +583,7 @@ function recordFacilitatorSpeechChunk() {
       }
       if (payload.transcript && payload.transcript.text) {
         appendRoomMessage("Facilitator: " + payload.transcript.text);
+        sendFacilBudText(payload.transcript.text);
       }
     }).catch(function () {
       setConnectionStatus("Whisper service unavailable");
@@ -548,13 +610,26 @@ function sendToFacilBud(event) {
   const text = elements.facilBudInput.value.trim();
   if (!text) return;
   elements.facilBudInput.value = "";
+  sendFacilBudText(text);
+}
+
+function sendFacilBudText(text) {
+  setConnectionStatus("Facil-Bud is processing...");
   fetch("/api/facilitator-message", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ room_name: elements.roomInput.value.trim(), text: text })
   })
-    .then(function (response) { return response.json(); })
-    .then(renderState)
+    .then(function (response) {
+      return response.json().then(function (payload) {
+        if (!response.ok) throw new Error(payload.error || "Facil-Bud request failed");
+        return payload;
+      });
+    })
+    .then(function (payload) {
+      renderState(payload.state || payload);
+      setConnectionStatus("Connected");
+    })
     .catch(function () { setConnectionStatus("Facil-Bud is unavailable"); });
 }
 
@@ -562,6 +637,7 @@ function renderState(state) {
   elements.title.textContent = "BUD AI Demo Workshop (Facilitator)";
   elements.phase.textContent = state.workshop.phase;
   elements.prompt.textContent = state.workshop.prompt;
+  renderFacilitatorTimer(state.workshop_control);
   document.getElementById("green-count").textContent = state.rollup.green;
   document.getElementById("yellow-count").textContent = state.rollup.yellow;
   document.getElementById("red-count").textContent = state.rollup.red;
@@ -578,6 +654,17 @@ function renderState(state) {
   renderParticipants(state.participants);
   renderSignals(state.facilitator_signals);
   renderFacilBudMessages(state.facil_bud_messages || []);
+}
+
+function renderFacilitatorTimer(control) {
+  if (!control) return;
+  const minutes = Math.floor(control.remaining_seconds / 60).toString().padStart(2, "0");
+  const seconds = (control.remaining_seconds % 60).toString().padStart(2, "0");
+  elements.timer.textContent = minutes + ":" + seconds;
+  elements.timerStatus.textContent = control.status.replace("_", " ");
+  elements.timerStart.disabled = control.status === "running" || control.status === "ended";
+  elements.timerPause.disabled = control.status !== "running";
+  elements.timerEnd.disabled = control.status === "ended" || control.status === "not_started";
 }
 
 function renderFacilBudMessages(messages) {

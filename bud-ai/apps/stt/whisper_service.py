@@ -19,6 +19,17 @@ print("Whisper service ready on port %s" % PORT, flush=True)
 
 
 class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path != "/health":
+            self.send_error(404)
+            return
+        body = json.dumps({"status": "ok", "service": "whisper", "model": MODEL_SIZE}).encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_POST(self):
         if self.path != "/transcribe":
             self.send_error(404)

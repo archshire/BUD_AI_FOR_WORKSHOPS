@@ -8,6 +8,8 @@ const elements = {
   budAvatar: document.getElementById("bud-avatar"),
   phase: document.getElementById("phase"),
   promptText: document.getElementById("prompt-text"),
+  workshopTimer: document.getElementById("workshop-timer"),
+  attachmentList: document.getElementById("attachment-list"),
   messages: document.getElementById("messages"),
   understanding: document.getElementById("understanding"),
   participation: document.getElementById("participation"),
@@ -25,10 +27,16 @@ const elements = {
   micStatusText: document.getElementById("mic-status-text"),
   micMeter: document.getElementById("mic-meter"),
   captionList: document.getElementById("caption-list"),
-  mediaStatus: document.getElementById("media-status"),
-  mainMedia: document.getElementById("main-media"),
-  mediaStrip: document.getElementById("media-strip"),
-  participantScreenButton: document.getElementById("participant-screen-button"),
+  documentMeta: document.getElementById("document-meta"),
+  documentLocation: document.getElementById("document-location"),
+  documentPageNumber: document.getElementById("document-page-number"),
+  documentPageHeading: document.getElementById("document-page-heading"),
+  documentContent: document.getElementById("document-content"),
+  documentPrevious: document.getElementById("document-previous"),
+  documentNext: document.getElementById("document-next"),
+  documentTaskAction: document.getElementById("document-task-action"),
+  documentTaskLabel: document.getElementById("document-task-label"),
+  documentTaskDone: document.getElementById("document-task-done"),
   clearCaptions: document.getElementById("clear-captions"),
   roomFeed: document.getElementById("room-feed"),
   presenceList: document.getElementById("presence-list"),
@@ -50,6 +58,9 @@ let speechChunkSequence = 0;
 let latestSpeechSequence = 0;
 let periodicSummaryTimer = null;
 let silenceTimeout = null;
+let workshopPages = [];
+let currentDocumentPage = 0;
+let completedTasks = {};
 const SILENCE_TIMEOUT_MS = 15000;
 
 function getParticipantId() {
@@ -67,7 +78,9 @@ function boot() {
   elements.nameInput.addEventListener("input", updateBudName);
   elements.form.addEventListener("keydown", submitOnEnter);
   elements.microphoneButton.addEventListener("click", publishMicrophone);
-  elements.participantScreenButton.addEventListener("click", toggleParticipantScreen);
+  elements.documentPrevious.addEventListener("click", function () { changeDocumentPage(-1); });
+  elements.documentNext.addEventListener("click", function () { changeDocumentPage(1); });
+  elements.documentTaskDone.addEventListener("click", completeCurrentTask);
   elements.clearCaptions.addEventListener("click", clearCaptions);
   elements.helpButton.addEventListener("click", function () {
     postJson("/api/help-stuck", { participant_id: PARTICIPANT_ID });
@@ -87,7 +100,11 @@ function boot() {
 
   document.querySelectorAll(".comprehension-button").forEach(function (button) {
     button.addEventListener("click", function () {
-      postJson("/api/comprehension-response", { participant_id: PARTICIPANT_ID, response: button.dataset.response });
+      postJson("/api/comprehension-response", {
+        participant_id: PARTICIPANT_ID,
+        response: button.dataset.response,
+        page_id: workshopPages[currentDocumentPage] && workshopPages[currentDocumentPage].page_id
+      });
     });
   });
 
@@ -119,10 +136,12 @@ function boot() {
 
   getState();
   window.setInterval(getState, 3000);
+  window.setInterval(refreshWorkshopMaterial, 5000);
   periodicSummaryTimer = window.setInterval(requestPeriodicSummary, 90000);
   updateBudName();
   applyLearnerBackground();
   applyBudAvatar();
+  refreshWorkshopMaterial();
 }
 
 function submitOnEnter(event) {
@@ -167,6 +186,80 @@ function updateBudName() {
   elements.messageLabel.textContent = "Message " + budName;
 }
 
+function refreshWorkshopMaterial() {
+  fetch("/api/workshop-material?room=" + encodeURIComponent(elements.roomInput.value.trim() || "bud-demo-room"))
+    .then(function (response) {
+      if (!response.ok) throw new Error("Workshop material unavailable");
+      return response.json();
+    })
+    .then(function (payload) {
+      workshopPages = payload.pages && payload.pages.length
+        ? payload.pages
+        : [{ page_id: "documents", filename: "Workshop documents", location: "Current activity", text: "Read the workshop documents. Complete the current task, ask Bud about anything unclear, and identify the evidence that would show the task was completed." }];
+      currentDocumentPage = Math.min(currentDocumentPage, workshopPages.length - 1);
+      renderAttachments();
+      renderDocumentPage();
+    })
+    .catch(function () {});
+}
+
+function renderAttachments() {
+  const filenames = [];
+  workshopPages.forEach(function (page) {
+    if (filenames.indexOf(page.filename) === -1) filenames.push(page.filename);
+  });
+  elements.attachmentList.innerHTML = "";
+  filenames.forEach(function (filename) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "attachment-link";
+    button.textContent = filename;
+    button.addEventListener("click", function () {
+      const firstPage = workshopPages.findIndex(function (page) { return page.filename === filename; });
+      if (firstPage >= 0) {
+        currentDocumentPage = firstPage;
+        renderDocumentPage();
+      }
+    });
+    elements.attachmentList.appendChild(button);
+  });
+}
+
+function changeDocumentPage(delta) {
+  if (!workshopPages.length) return;
+  currentDocumentPage = Math.max(0, Math.min(workshopPages.length - 1, currentDocumentPage + delta));
+  renderDocumentPage();
+}
+
+function renderDocumentPage() {
+  const page = workshopPages[currentDocumentPage];
+  if (!page) return;
+  elements.documentMeta.textContent = page.filename;
+  elements.documentLocation.textContent = page.location;
+  elements.documentPageNumber.textContent = "Page " + (currentDocumentPage + 1) + " of " + workshopPages.length;
+  elements.documentPageHeading.textContent = page.filename;
+  elements.documentContent.textContent = page.text;
+  elements.documentPrevious.disabled = currentDocumentPage === 0;
+  elements.documentNext.disabled = currentDocumentPage === workshopPages.length - 1;
+  const isTask = page.text.toLowerCase().indexOf("task:") !== -1;
+  elements.documentTaskAction.hidden = !isTask;
+  elements.documentTaskLabel.textContent = isTask ? "Task on this page" : "";
+  elements.documentTaskDone.textContent = completedTasks[page.page_id] ? "Task completed" : "Mark task done";
+  elements.documentTaskDone.disabled = Boolean(completedTasks[page.page_id]);
+}
+
+function completeCurrentTask() {
+  const page = workshopPages[currentDocumentPage];
+  if (!page || completedTasks[page.page_id]) return;
+  completedTasks[page.page_id] = true;
+  renderDocumentPage();
+  postJson("/api/task-complete", {
+    participant_id: PARTICIPANT_ID,
+    task_id: "task-" + page.page_id,
+    page_id: page.page_id
+  });
+}
+
 function connectWorkshop() {
   if (!window.LivekitClient) {
     setConnectionStatus("LiveKit client unavailable");
@@ -188,8 +281,6 @@ function connectWorkshop() {
     .then(function (result) {
       if (!result.ok) throw new Error(result.body.error || "Unable to get LiveKit token");
       livekitRoom = new window.LivekitClient.Room({ adaptiveStream: true, dynacast: true });
-      livekitRoom.on(window.LivekitClient.RoomEvent.TrackSubscribed, function (track, publication, participant) { renderRemoteMedia(track, publication, participant); });
-      livekitRoom.on(window.LivekitClient.RoomEvent.TrackUnsubscribed, function (track, publication) { removeMediaTrack(track, publication); });
       livekitRoom.on(window.LivekitClient.RoomEvent.ParticipantConnected, function (participant) {
         roomParticipants[participant.identity] = participant.name || participant.identity;
         appendRoomMessage(participant.name + " joined the workshop.");
@@ -217,8 +308,6 @@ function connectWorkshop() {
       setConnectionStatus("Connected");
       elements.connectButton.textContent = "Connected";
       elements.microphoneButton.disabled = false;
-      elements.participantScreenButton.disabled = false;
-      refreshMediaState();
       reportTopviewPresence(true, false);
       Object.keys(livekitRoom.remoteParticipants).forEach(function (identity) {
         const participant = livekitRoom.remoteParticipants[identity];
@@ -242,25 +331,39 @@ function refreshMediaState() {
 }
 
 function renderRemoteMedia(track, publication, participant) {
-  const element = track.attach();
-  element.dataset.participantId = participant.identity;
-  element.dataset.source = publication.source;
   if (publication.source === window.LivekitClient.Track.Source.ScreenShareAudio) {
+    const element = track.attach();
     elements.mainMedia.appendChild(element);
     elements.mediaStatus.textContent = "Screen audio shared by " + (participant.name || participant.identity);
     return;
   }
   if (publication.source === window.LivekitClient.Track.Source.ScreenShare) {
+    const element = track.attach();
     elements.mainMedia.innerHTML = "";
     elements.mainMedia.appendChild(element);
     elements.mediaStatus.textContent = "Screen shared by " + (participant.name || participant.identity);
   } else if (publication.source === window.LivekitClient.Track.Source.Camera) {
-    elements.mediaStrip.appendChild(element);
+    attachRemoteCameraTrack(track, publication, participant);
   }
+}
+
+function attachRemoteCameraTrack(track, publication, participant) {
+  const existing = elements.mediaStrip.querySelector("[data-participant-id='" + participant.identity + "'][data-source='camera']");
+  if (existing) return;
+  const element = track.attach();
+  element.dataset.participantId = participant.identity;
+  element.dataset.source = "camera";
+  element.autoplay = true;
+  element.playsInline = true;
+  elements.mediaStrip.appendChild(element);
+  elements.mediaStatus.textContent = (participant.name || participant.identity) + " camera active";
 }
 
 function removeMediaTrack(track, publication) {
   track.detach().forEach(function (element) { element.remove(); });
+  if (publication.source === window.LivekitClient.Track.Source.Camera) {
+    elements.mediaStatus.textContent = "Facilitator camera off";
+  }
   if (publication.source === window.LivekitClient.Track.Source.ScreenShare) {
     elements.mainMedia.innerHTML = "<p class=\"empty\">The main workshop screen will appear here.</p>";
     refreshMediaState();
@@ -269,7 +372,7 @@ function removeMediaTrack(track, publication) {
 
 function toggleParticipantScreen() {
   if (!livekitRoom) return;
-  const sharing = Boolean(livekitRoom.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.ScreenShare));
+  const sharing = Boolean(livekitRoom.localParticipant.getTrackPublication("screen_share"));
   const endpoint = sharing ? "/api/livekit/media/release" : "/api/livekit/media/claim";
   const body = { room_name: elements.roomInput.value.trim(), participant_id: PARTICIPANT_ID, display_name: elements.nameInput.value.trim(), role: "learner" };
   fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(function (response) { return response.json().then(function (payload) { return { ok: response.ok, payload: payload }; }); }).then(function (result) {
@@ -300,13 +403,13 @@ function publishMicrophone() {
     return;
   }
   livekitRoom.localParticipant.setMicrophoneEnabled(true)
-    .then(function () {
+    .then(function (publication) {
       elements.microphoneButton.textContent = "Stop talking";
       elements.microphoneButton.disabled = false;
       elements.micStatusText.textContent = "Listening for your message...";
       reportTopviewPresence(true, true);
-      startMicMeter();
-      startSpeechCapture();
+      startMicMeter(publication);
+      startSpeechCapture(publication);
       appendRoomMessage("Bud is listening. Press Stop talking when you are finished.");
     })
     .catch(function (error) { setConnectionStatus("Microphone unavailable: " + error.message); });
@@ -351,13 +454,17 @@ function reportTopviewPresence(connected, microphoneActive) {
   }).catch(function () {});
 }
 
-function startSpeechCapture() {
+function startSpeechCapture(publication) {
   if (!window.MediaRecorder || speechCaptureActive) return;
-  const publication = livekitRoom.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.Microphone);
-  const mediaTrack = publication && publication.track && publication.track.mediaStreamTrack;
+  const activePublication = publication || (livekitRoom.localParticipant.getTrackPublication
+    ? livekitRoom.localParticipant.getTrackPublication("microphone")
+    : null);
+  const mediaTrack = activePublication && activePublication.track && activePublication.track.mediaStreamTrack;
   const streamPromise = mediaTrack
     ? Promise.resolve(new MediaStream([mediaTrack]))
-    : navigator.mediaDevices.getUserMedia({ audio: true });
+    : navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+      ? navigator.mediaDevices.getUserMedia({ audio: true })
+      : Promise.reject(new Error("Browser microphone access is unavailable. Use HTTPS or localhost and allow microphone permission."));
   streamPromise.then(function (stream) {
     speechCaptureStream = stream;
     speechCaptureActive = true;
@@ -431,17 +538,21 @@ function recordSpeechChunk() {
   }, 4000);
 }
 
-function startMicMeter() {
+function startMicMeter(publication) {
   if (!window.AudioContext) {
     elements.micStatusText.textContent = "Microphone active";
     return;
   }
 
-  const publication = livekitRoom.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.Microphone);
-  const publishedTrack = publication && publication.track && publication.track.mediaStreamTrack;
+  const activePublication = publication || (livekitRoom.localParticipant.getTrackPublication
+    ? livekitRoom.localParticipant.getTrackPublication("microphone")
+    : null);
+  const publishedTrack = activePublication && activePublication.track && activePublication.track.mediaStreamTrack;
   const streamPromise = publishedTrack
     ? Promise.resolve(new MediaStream([publishedTrack]))
-    : navigator.mediaDevices.getUserMedia({ audio: true });
+    : navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+      ? navigator.mediaDevices.getUserMedia({ audio: true })
+      : Promise.reject(new Error("Browser microphone access is unavailable. Use HTTPS or localhost and allow microphone permission."));
 
   streamPromise.then(function (stream) {
     const audioContext = new window.AudioContext();
@@ -530,9 +641,10 @@ function postJson(url, body) {
 
 function renderState(state) {
   lastState = state;
-  elements.title.textContent = "BUD AI Demo Workshop (participant)";
+  elements.title.textContent = "Workshop: How To Use BUD AI";
   elements.phase.textContent = state.workshop.phase;
-  elements.promptText.textContent = state.workshop.prompt;
+  elements.promptText.textContent = "Complete the Tasks specified in the document with Bud AI.";
+  renderWorkshopTimer(state.workshop_control);
 
   const understanding = state.participant && state.participant.understanding;
   const participation = state.participant && state.participant.participation;
@@ -541,6 +653,14 @@ function renderState(state) {
   elements.comprehension.textContent = state.participant && state.participant.comprehension ? state.participant.comprehension.status : "unknown";
   renderMessages(state.private_messages);
   renderSharedMessages(state.group_messages);
+}
+
+function renderWorkshopTimer(control) {
+  if (!control) return;
+  const minutes = Math.floor(control.remaining_seconds / 60).toString().padStart(2, "0");
+  const seconds = (control.remaining_seconds % 60).toString().padStart(2, "0");
+  elements.workshopTimer.textContent = minutes + ":" + seconds;
+  elements.workshopTimer.className = control.status === "ended" ? "timer-ended" : "";
 }
 
 function renderSharedMessages(messages) {

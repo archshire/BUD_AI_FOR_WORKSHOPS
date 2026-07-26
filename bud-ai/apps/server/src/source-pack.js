@@ -112,6 +112,30 @@ function createSourcePackStore(rootDirectory) {
     return summarizeManifest(readManifest(roomName));
   }
 
+  function pages(roomName) {
+    const manifest = readManifest(roomName);
+    const active = manifest.versions.find(function (version) { return version.version === manifest.active_version; });
+    if (!active) return { version: null, pages: [] };
+    const result = [];
+    active.materials.forEach(function (material) {
+      const extractedPath = path.join(root, material.extracted_text_ref);
+      try {
+        const extracted = JSON.parse(fs.readFileSync(extractedPath, "utf8"));
+        extracted.chunks.forEach(function (chunk, index) {
+          result.push({
+            page_id: material.material_id + "-" + index,
+            filename: material.filename,
+            location: chunk.location,
+            text: chunk.text
+          });
+        });
+      } catch (error) {
+        // A missing extracted artifact is treated as unavailable material.
+      }
+    });
+    return { version: active.version, pages: result };
+  }
+
   function context(roomName, question) {
     const manifest = readManifest(roomName);
     const active = manifest.versions.find(function (version) { return version.version === manifest.active_version; });
@@ -141,7 +165,7 @@ function createSourcePackStore(rootDirectory) {
     };
   }
 
-  return { addMaterial, activate, get, context, root };
+  return { addMaterial, activate, get, pages, context, root };
 }
 
 function extensionFor(filename) {

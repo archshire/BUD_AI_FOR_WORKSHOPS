@@ -27,8 +27,29 @@ function render(state) {
   elements.updated.textContent = "Updated " + new Date(state.generated_at).toLocaleTimeString();
   renderRooms(state.rooms);
   renderProviders(state.providers);
+  renderServices(state.services);
   renderParticipants(state.participants);
   renderEvents(state.events);
+}
+
+function renderServices(services) {
+  const container = document.getElementById("services");
+  container.innerHTML = "";
+  Object.keys(services || {}).forEach(function (name) {
+    const service = services[name];
+    const item = document.createElement("article");
+    item.className = "service-card " + (service.status === "healthy" ? "service-healthy" : "service-unhealthy");
+    const title = document.createElement("strong");
+    title.textContent = name.toUpperCase();
+    const status = document.createElement("span");
+    status.textContent = service.status;
+    const detail = document.createElement("small");
+    detail.textContent = service.detail + " / " + service.latency_ms + " ms";
+    item.appendChild(title);
+    item.appendChild(status);
+    item.appendChild(detail);
+    container.appendChild(item);
+  });
 }
 
 function renderRooms(rooms) {

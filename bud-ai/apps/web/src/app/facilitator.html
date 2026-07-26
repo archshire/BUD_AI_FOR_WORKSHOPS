@@ -18,8 +18,8 @@
 
       <section class="prompt-band" aria-labelledby="prompt-title">
         <div>
-          <p class="eyebrow">Current Prompt</p>
-          <h2 id="prompt-title">Workshop prompt</h2>
+          <p class="eyebrow">Workshop documents</p>
+          <h2 id="prompt-title">Workshop documents</h2>
         </div>
         <p id="prompt-text"></p>
       </section>
@@ -50,11 +50,18 @@
             <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
           </div>
         </div>
-        <section class="media-stage" aria-labelledby="facilitator-media-title">
-          <div class="section-head"><h3 id="facilitator-media-title">Workshop media</h3><span id="facilitator-media-status">No shared screen</span></div>
-          <div class="main-media" id="facilitator-main-media"><p class="empty">The main workshop screen will appear here.</p></div>
-          <div class="media-strip" id="facilitator-media-strip" aria-label="Live workshop video"></div>
-          <div class="media-actions"><button class="secondary-action" id="facilitator-camera-button" disabled>Start camera</button><button class="secondary-action" id="facilitator-screen-button" disabled>Share screen + audio</button><button class="secondary-action" id="participant-permission-button" disabled>Allow participant screen sharing</button></div>
+        <div class="facilitator-timer" aria-label="Workshop timer controls">
+          <div><span class="eyebrow">Workshop time</span><strong id="facilitator-timer">30:00</strong><span id="facilitator-timer-status">Not started</span></div>
+          <div class="timer-actions">
+            <button class="primary-action" id="timer-start" type="button">Start</button>
+            <button class="secondary-action" id="timer-pause" type="button">Pause</button>
+            <button class="secondary-action" id="timer-end" type="button">End</button>
+            <button class="secondary-action" id="timer-reset" type="button" title="Reset workshop timer">Reset</button>
+          </div>
+        </div>
+        <section class="document-overview" aria-labelledby="facilitator-material-title">
+          <div class="section-head"><h3 id="facilitator-material-title">Learner document workspace</h3><span>Slides and pages guide the room</span></div>
+          <p id="facilitator-material-status">Upload and activate a Source Pack below. Learners will read it at their own pace and report comprehension page by page.</p>
         </section>
         <div class="room-feed" id="room-feed" aria-live="polite"></div>
       </section>
@@ -121,7 +128,7 @@
         <form id="facil-bud-form" class="facil-bud-composer">
           <label for="facil-bud-input">Ask Facil-Bud</label>
           <div>
-            <textarea id="facil-bud-input" rows="3" placeholder="Ask for a room-level summary or help with the current workshop prompt."></textarea>
+            <textarea id="facil-bud-input" rows="3" placeholder="Ask for a room-level summary or help with the workshop documents."></textarea>
             <button class="primary-action" type="submit">Send to Facil-Bud</button>
           </div>
         </form>

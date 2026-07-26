@@ -12,17 +12,21 @@
         <div class="topbar">
           <div>
             <p class="eyebrow">Bud AI</p>
-            <h1 id="workshop-title">BUD AI Demo Workshop (participant)</h1>
+            <h1 id="workshop-title">Workshop: How To Use BUD AI</h1>
           </div>
           <div class="status" id="phase">active</div>
         </div>
 
         <section class="prompt-band" aria-labelledby="prompt-title">
           <div>
-            <p class="eyebrow">Current Prompt</p>
-            <h2 id="prompt-title">Prototype success criteria</h2>
+            <p class="eyebrow">Current Task</p>
+            <h2 id="prompt-title">Complete the Tasks specified in the document with Bud AI.</h2>
           </div>
-          <p id="prompt-text"></p>
+          <div class="task-summary">
+            <p id="prompt-text">Read each document section, complete its task, and use Bud whenever something feels unclear.</p>
+            <div class="task-meta"><strong>Time</strong><span id="workshop-timer">30:00</span></div>
+            <div class="task-meta"><strong>Attachments</strong><div id="attachment-list"><span class="empty">No attachments published yet.</span></div></div>
+          </div>
         </section>
 
         <section class="room-controls" aria-labelledby="room-title">
@@ -62,11 +66,35 @@
               <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
             </div>
           </div>
-        <section class="media-stage" aria-labelledby="media-stage-title">
-          <div class="section-head"><h3 id="media-stage-title">Workshop media</h3><span id="media-status">No shared screen</span></div>
-          <div class="main-media" id="main-media"><p class="empty">The main workshop screen will appear here.</p></div>
-          <div class="media-strip" id="media-strip" aria-label="Live workshop video"></div>
-          <button class="secondary-action" id="participant-screen-button" disabled>Share screen + audio</button>
+        <section class="document-workspace" aria-labelledby="document-title">
+          <div class="section-head">
+            <div>
+              <p class="eyebrow">Learner-paced workshop material</p>
+              <h3 id="document-title">Workshop document</h3>
+            </div>
+            <span id="document-meta">Workshop documents</span>
+          </div>
+          <article class="document-page" aria-live="polite">
+            <header><span id="document-location">Current activity</span><strong id="document-page-number">Page 1 of 1</strong></header>
+            <h4 id="document-page-heading">Prototype success criteria</h4>
+            <p id="document-content"></p>
+          </article>
+          <div class="document-controls">
+            <button class="secondary-action" id="document-previous" type="button">Previous</button>
+            <button class="secondary-action" id="document-next" type="button">Next</button>
+          </div>
+          <div class="document-checkin">
+            <span>How clear is this page?</span>
+            <div class="comprehension-actions" aria-label="Page comprehension check">
+              <button class="comprehension-button comprehension-green" data-response="green" title="Green: got it" aria-label="Green: got it"><span aria-hidden="true">👍</span></button>
+              <button class="comprehension-button comprehension-yellow" data-response="yellow" title="Yellow: somewhat clear" aria-label="Yellow: somewhat clear"><span aria-hidden="true">🤔</span></button>
+              <button class="comprehension-button comprehension-red" data-response="red" title="Help! I'm Stuck!" aria-label="Help! I'm Stuck!"><span aria-hidden="true">!</span></button>
+            </div>
+          </div>
+          <div class="document-task-action" id="document-task-action" hidden>
+            <span id="document-task-label">Task on this page</span>
+            <button class="primary-action" id="document-task-done" type="button">Mark task done</button>
+          </div>
         </section>
           <section class="captions" aria-labelledby="captions-title">
             <div class="section-head">
@@ -123,12 +151,6 @@
           <button class="primary-action" id="help-button">Help, I'm Stuck</button>
           <button class="secondary-action" id="dismiss-button" title="Hide the most recent Bud message from this view">Hide latest</button>
         </div>
-
-        <section class="comprehension-actions" aria-label="Comprehension check">
-          <button class="comprehension-button comprehension-green" data-response="green" title="Green: got it" aria-label="Green: got it"><span aria-hidden="true">👍</span></button>
-          <button class="comprehension-button comprehension-yellow" data-response="yellow" title="Yellow: somewhat clear" aria-label="Yellow: somewhat clear"><span aria-hidden="true">🤔</span></button>
-          <button class="comprehension-button comprehension-red" data-response="red" title="Help! I'm Stuck!" aria-label="Help! I'm Stuck!"><span aria-hidden="true">!</span></button>
-        </section>
 
         <form id="message-form" class="composer">
           <label for="message-input" id="message-label">Message Learner's Bud</label>

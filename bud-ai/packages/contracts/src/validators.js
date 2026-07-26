@@ -45,6 +45,11 @@ function validateNormalizedEvent(event) {
     requireOneOf(event.payload.response, ["green", "yellow", "red"], "event.payload.response");
   }
 
+  if (event.type === "task_completed") {
+    requireString(event.payload.task_id, "event.payload.task_id");
+    requireString(event.payload.page_id, "event.payload.page_id");
+  }
+
   return true;
 }
 
