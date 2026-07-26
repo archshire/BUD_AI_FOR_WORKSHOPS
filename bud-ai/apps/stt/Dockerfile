@@ -11,7 +11,7 @@ COPY whisper_service.py ./whisper_service.py
 
 ENV STT_HOST=0.0.0.0
 ENV STT_PORT=8787
-ENV WHISPER_MODEL=base
+ENV WHISPER_MODEL=small
 ENV WHISPER_DEVICE=cpu
 ENV WHISPER_COMPUTE_TYPE=int8
 ENV HF_HOME=/models/huggingface

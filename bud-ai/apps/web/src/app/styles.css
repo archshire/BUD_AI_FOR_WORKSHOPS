@@ -119,9 +119,10 @@ body:not(.facilitator-page) {
   gap: 14px;
   position: sticky;
   top: 20px;
-  min-height: calc(100vh - 48px);
+  height: min(680px, calc(100vh - 48px));
+  min-height: 420px;
 }
-.facil-bud-messages { display: grid; align-content: start; gap: 10px; min-height: 0; max-height: none; overflow: auto; }
+.facil-bud-messages { display: grid; align-content: start; gap: 10px; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .facil-bud-message { border-left: 3px solid var(--blue); background: #eef4fb; padding: 12px; line-height: 1.45; }
 .message-user { background: #f5f7f9; border-color: #aab2bb; color: var(--ink); }
 .message-bud { background: var(--mint); border-color: #9bcab8; color: var(--mint-ink); }
@@ -271,7 +272,8 @@ h2 {
   flex: 1;
   display: flex;
   flex-direction: column;
-  min-height: 360px;
+  height: min(680px, calc(100vh - 260px));
+  min-height: 420px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--paper);
@@ -431,6 +433,7 @@ h2 {
   gap: 12px;
   margin-top: 18px;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 
 .empty,
@@ -613,8 +616,9 @@ h2 {
   .facilitator-shell > .dashboard-grid,
   .facilitator-shell > .dashboard-panel,
   .facilitator-shell > .facil-bud-panel { grid-column: 1; }
-  .facil-bud-panel { grid-row: auto; position: static; min-height: auto; }
-  .facil-bud-messages { max-height: 320px; }
+  .facil-bud-panel { grid-row: auto; position: static; height: min(560px, calc(100vh - 120px)); min-height: 360px; }
+  .facil-bud-messages { min-height: 0; }
+  .activity { height: min(560px, calc(100vh - 180px)); min-height: 360px; }
   .facilitator-connect-form,
   .dashboard-grid { grid-template-columns: 1fr; }
   .rollup-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -4,7 +4,7 @@ function createInMemoryStateStore(initialState) {
       workshop_id: "workshop-demo",
       title: "Bud AI Demo Workshop",
       phase: "active",
-      supported_languages: ["en", "es", "zh", "my", "fr"],
+      supported_languages: ["en", "es", "zh", "my", "fr", "th"],
       default_language: "en",
       facilitator_ids: ["facilitator-1"],
       participant_ids: ["learner-1", "learner-2"],

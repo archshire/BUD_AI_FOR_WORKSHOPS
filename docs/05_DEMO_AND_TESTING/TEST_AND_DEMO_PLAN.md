@@ -25,7 +25,7 @@ The current local prototype satisfies the mandatory requirements in
 - **Both roles:** facilitator and learner views, including Facil-Bud and
   learner-specific Bud surfaces.
 - **At least two languages:** English, Spanish, Simplified Chinese, Burmese,
-  and French are configured in the local speech/translation path.
+  French, and Thai are configured in the local speech/translation path.
 - **Real-time learning scenario:** LiveKit room connection, microphone input,
   live transcription/captions, translation, multilingual text, and private
   support can be shown with multiple browser clients.
@@ -231,10 +231,18 @@ The demo should tolerate:
 ### Provider Benchmark Gate
 
 - Test at least 20 varied utterances per supported language across speakers, accents, speaking speeds, and mild background noise.
+- Run the current multilingual faster-whisper `small` configuration with
+  beam size 4; compare against beam size 1 if latency is marginal.
 - Verify input acknowledgement within 300 ms, typical Bud response within 1.5 seconds, and a 3 second maximum including one retry.
-- Verify stale output is discarded, original and translation remain distinct, provider failures show visibly, and raw audio is not written to the session log.
+- Verify stale output is discarded while the earlier transcript/context remains
+  available for the next sensemaking pass; original and translation remain
+  distinct, provider failures show visibly, and raw audio is not written to
+  the session log.
 - The browser displays per-chunk STT, translation, and total pipeline timings;
   late responses with an older speech sequence are discarded and visibly noted.
+- Verify `Talk to Bud` and `Talk to Facil-Bud` require explicit activation,
+  stop on the button press, and auto-stop after 15 seconds without meaningful
+  audio.
 
 ### Final Demo Acceptance
 

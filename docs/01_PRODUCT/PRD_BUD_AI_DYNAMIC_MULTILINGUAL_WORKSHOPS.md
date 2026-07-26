@@ -596,7 +596,41 @@ interpretation as the original statement.
 
 ------------------------------------------------------------------------
 
-## FR-LANG-005 --- Translation dispute
+## FR-LANG-005 --- Native-language input boundary
+
+**Requirement:** Each participant and facilitator selects a native input
+language during workshop setup. Bud uses the selection as a speech-input
+boundary: when the speech recognizer detects another supported language, the
+transcript is marked ignored and does not enter translation, workshop events,
+or AI reasoning. The selected native input language is independent from the
+language chosen for displayed translation.
+
+**Acceptance:** A supported utterance in the selected native language enters
+the normal transcript/translation path. An utterance detected in another
+supported language produces a visible ignored state and creates no workshop
+evidence event.
+
+------------------------------------------------------------------------
+
+## FR-LANG-006 --- Bounded talk-to-Bud capture
+
+**Requirement:** Participant and facilitator microphone input is user-triggered
+speech capture, not ambient listening. The setup control reads `Talk to Bud`
+for a participant and `Talk to Facil-Bud` for the facilitator when idle. The
+control changes to `Stop talking` while the turn is active. Pressing it again
+ends capture, disables the published microphone, and returns the control to its
+idle state. If no meaningful audio level is detected for 15 seconds, Bud ends
+the turn automatically and visibly tells the user that listening stopped due to
+silence.
+
+**Acceptance:** No microphone audio is sent to the transcription path before
+the user starts a talk turn. A manual stop and a 15-second silence stop both
+terminate the recorder loop, stop microphone publication, and preserve any
+completed transcript events without recording raw audio in the session log.
+
+------------------------------------------------------------------------
+
+## FR-LANG-007 --- Translation dispute
 
 A participant must be able to challenge or clarify a
 translation/interpretation in the supported flow.
@@ -606,7 +640,7 @@ re-evaluation rather than remaining unquestioned evidence.
 
 ------------------------------------------------------------------------
 
-## FR-LANG-006 --- System self-error hypothesis
+## FR-LANG-008 --- System self-error hypothesis
 
 When apparent misunderstanding could plausibly arise from
 STT/translation/AI transformation, the system must consider that
@@ -1183,8 +1217,11 @@ Must provide enough of:
 
 -   participant presence;
 -   voice session;
+-   explicit participant/facilitator talk-turn controls with visible active
+    and stopped states;
 -   text communication;
 -   transcript/caption/translation surface;
+-   bounded, internally scrollable Bud and Facil-Bud message history;
 -   clear distinction where necessary between original and translated
     meaning.
 
@@ -1193,6 +1230,8 @@ Must provide enough of:
 Must support:
 
 -   private text interaction;
+-   a bounded, scrollable private message history that keeps the composer
+    available without allowing the thread to expand the page indefinitely;
 -   AI check-ins/support;
 -   contextual clarification;
 -   peer-meaning question flow;
@@ -1207,6 +1246,8 @@ reliability.
 Must support:
 
 -   current workshop context;
+-   a bounded, scrollable Facil-Bud conversation with an always-available
+    composer;
 -   participant/group operational state sufficient for MVP;
 -   attention signals;
 -   pattern synthesis;
@@ -1698,7 +1739,8 @@ future work; they are not unresolved product meaning:
 -   exact normalized event payloads;
 -   exact AI structured decision schema;
 -   exact bounded tool signatures;
--   exact Whisper-family STT variant and runtime configuration;
+-   measured Whisper `small` latency/quality on the demo hardware and whether
+    beam size 4 should remain the final demo setting;
 -   whether Qwen handles all text translation or selected pairs use a dedicated provider;
 -   Qwen/Whisper quantization and target hardware;
 -   turn/utterance detection thresholds;
@@ -1879,9 +1921,16 @@ confirms continuation. Leaving the workshop ends the active Bud session.
 
 The MVP AI input scope remains voice and text only. The `live-vid` branch adds optional facilitator camera presence and LiveKit screen sharing as communication media, but these tracks are not part of Bud's AI input path. Participant camera video remains out of scope unless separately approved.
 
-Bud must prioritize context-current responses. A slow or stale sensemaking
+Bud must prioritize context-current responses. The current prototype uses
+multilingual faster-whisper `small` with beam size 4 for voice transcription,
+with beam size 1 retained as a latency comparison setting. A slow or stale sensemaking
 result must not be delivered after the workshop has moved on as though it
-still applies. Local/open-source inference is the preferred provider
+still applies. This rule applies to the pending response, not to the
+permitted evidence that produced it: transcripts, events, and relevant
+prior context remain available for the next sensemaking pass. Bud must
+re-anchor on the latest context while preserving prerequisite earlier
+context; if that prerequisite is unclear, Bud must ask or wait rather than
+pretend it understood. Local/open-source inference is the preferred provider
 direction for reducing API and network dependence, but the exact model,
 hardware, quantization, cancellation, freshness checks, and fallback
 behavior remain Item 21 decisions and require benchmarking.

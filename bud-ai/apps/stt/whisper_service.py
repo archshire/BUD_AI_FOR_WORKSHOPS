@@ -6,9 +6,10 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from faster_whisper import WhisperModel
 
 
-MODEL_SIZE = os.environ.get("WHISPER_MODEL", "base")
+MODEL_SIZE = os.environ.get("WHISPER_MODEL", "small")
 DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
 COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
+BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "4"))
 PORT = int(os.environ.get("STT_PORT", "8787"))
 HOST = os.environ.get("STT_HOST", "127.0.0.1")
 
@@ -36,7 +37,7 @@ class Handler(BaseHTTPRequestHandler):
             source.flush()
             segments, info = MODEL.transcribe(
                 source.name,
-                beam_size=1,
+                beam_size=BEAM_SIZE,
                 vad_filter=True,
                 condition_on_previous_text=False,
             )

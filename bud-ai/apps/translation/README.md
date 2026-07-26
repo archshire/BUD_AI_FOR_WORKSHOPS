@@ -13,7 +13,7 @@
 
 The prototype translation service uses the local 8-bit
 `nllb-200-distilled-600M` CTranslate2 model. The verified prototype targets
-are English, Spanish, Simplified Chinese, Burmese, and French. The first
+are English, Spanish, Simplified Chinese, Burmese, French, and Thai. The first
 two-language path remains English and Spanish; the additional targets are
 available for broader demo testing.
 

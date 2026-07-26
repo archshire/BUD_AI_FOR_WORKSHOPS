@@ -22,11 +22,14 @@ Bud should be able to start with development providers and later swap in real ST
 
 - **LLM/reasoning and text translation:** `Qwen/Qwen3-8B`.
 - **Voice transcription:** a separate Whisper-family STT provider.
+- **Current STT runtime:** multilingual `faster-whisper-small` with
+  `WHISPER_BEAM_SIZE=4`; `WHISPER_BEAM_SIZE=1` remains the fast comparison
+  setting.
 - **Qwen mode:** non-thinking mode for the low-latency path.
 
 Qwen3-8B is the selected default because it offers multilingual instruction following/translation, local deployment options, structured/tool-use compatibility, non-thinking mode, and an Apache 2.0 license at a more practical starting size than 24B-class alternatives. Whisper remains separate because speech recognition is a distinct audio model responsibility.
 
-The exact Whisper variant, quantization, hardware target, and measured performance remain open until benchmarked against the prototype's 300 ms acknowledgement, 1.5 second target, and 3 second total deadline. The first verified two-language translation route is a dedicated local NLLB CTranslate2 service. The prototype target set is English, Spanish, Simplified Chinese, Burmese, and French; Qwen remains the broader local reasoning/text-translation direction for later benchmarked routing.
+The measured Whisper performance, quantization fit, and hardware target remain open until benchmarked against the prototype's 300 ms acknowledgement, 1.5 second target, and 3 second total deadline. The first verified two-language translation route is a dedicated local NLLB CTranslate2 service. The prototype target set is English, Spanish, Simplified Chinese, Burmese, French, and Thai; Qwen remains the broader local reasoning/text-translation direction for later benchmarked routing.
 
 ### Current Demo Runtime Choice
 
@@ -88,7 +91,7 @@ Prototype translation route:
 
 - `nllb-200-distilled-600M-ct2-int8` runs locally through CTranslate2.
 - The initial verified pair is English <-> Spanish.
-- The prototype selector also exposes Simplified Chinese, Burmese, and French;
+- The prototype selector also exposes Simplified Chinese, Burmese, French, and Thai;
   each target must be benchmarked for quality and latency before being treated
   as production-ready.
 - Original transcript, translated text, and later interpretation remain
@@ -173,7 +176,8 @@ Development providers must be clearly labeled in UI/logs when used.
 
 ## Open Decisions
 
-- Exact Whisper variant and quantization.
+- Measured Whisper `small` quality/latency and whether beam size 4 should
+  remain the final demo setting.
 - Whether Qwen performs all text translation or a dedicated translation provider is used for selected language pairs.
 - Whether provider calls run server-side only or mixed client/server.
 - Target hardware and measured latency.

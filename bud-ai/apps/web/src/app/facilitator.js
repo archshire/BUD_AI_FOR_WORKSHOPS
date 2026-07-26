@@ -4,6 +4,7 @@ const elements = {
   prompt: document.getElementById("prompt-text"),
   connectionStatus: document.getElementById("connection-status"),
   roomInput: document.getElementById("room-input"),
+  nativeLanguageInput: document.getElementById("facilitator-native-language-input"),
   connectButton: document.getElementById("connect-button"),
   microphoneButton: document.getElementById("facilitator-microphone-button"),
   microphoneStatus: document.getElementById("facilitator-mic-status"),
@@ -44,6 +45,8 @@ let facilitatorSpeechStream = null;
 let facilitatorSpeechActive = false;
 let facilitatorSpeechSequence = 0;
 let facilitatorMicAnalyserFrame = null;
+let facilitatorSilenceTimeout = null;
+const FACILITATOR_SILENCE_TIMEOUT_MS = 15000;
 
 function boot() {
   elements.connectButton.addEventListener("click", connectWorkshop);
@@ -386,19 +389,49 @@ function toggleParticipantPermission() {
 
 function startFacilitatorMicrophone() {
   if (!livekitRoom) return;
+  if (facilitatorSpeechActive) {
+    stopFacilitatorTalking();
+    return;
+  }
   livekitRoom.localParticipant.setMicrophoneEnabled(true)
     .then(function () {
-      elements.microphoneButton.textContent = "Microphone active";
-      elements.microphoneButton.disabled = true;
-      elements.microphoneStatus.textContent = "Microphone active; local Whisper capture active";
+      elements.microphoneButton.textContent = "Stop talking";
+      elements.microphoneButton.disabled = false;
+      elements.microphoneStatus.textContent = "Listening for your message...";
       reportTopviewPresence(true, true);
       startFacilitatorMicMeter();
       startFacilitatorSpeechCapture();
-      appendRoomMessage("Facilitator microphone published; Bud is listening.");
+      appendRoomMessage("Facil-Bud is listening. Press Stop talking when you are finished.");
     })
     .catch(function (error) {
       setConnectionStatus("Microphone unavailable: " + error.message);
     });
+}
+
+function stopFacilitatorTalking(reason) {
+  facilitatorSpeechActive = false;
+  if (facilitatorSilenceTimeout) {
+    window.clearTimeout(facilitatorSilenceTimeout);
+    facilitatorSilenceTimeout = null;
+  }
+  if (facilitatorSpeechRecorder && facilitatorSpeechRecorder.state === "recording") facilitatorSpeechRecorder.stop();
+  if (livekitRoom) livekitRoom.localParticipant.setMicrophoneEnabled(false).catch(function () {});
+  if (facilitatorMicAnalyserFrame) {
+    window.cancelAnimationFrame(facilitatorMicAnalyserFrame);
+    facilitatorMicAnalyserFrame = null;
+  }
+  Array.prototype.forEach.call(elements.microphoneMeter.children, function (bar) { bar.classList.remove("active"); });
+  elements.microphoneButton.textContent = "Talk to Facil-Bud";
+  elements.microphoneStatus.textContent = "Microphone off";
+  reportTopviewPresence(true, false);
+  appendRoomMessage(reason === "silence" ? "Facil-Bud stopped listening after 15 seconds of silence." : "Facil-Bud stopped listening.");
+}
+
+function resetFacilitatorSilenceTimeout() {
+  if (facilitatorSilenceTimeout) window.clearTimeout(facilitatorSilenceTimeout);
+  facilitatorSilenceTimeout = window.setTimeout(function () {
+    if (facilitatorSpeechActive) stopFacilitatorTalking("silence");
+  }, FACILITATOR_SILENCE_TIMEOUT_MS);
 }
 
 function reportTopviewPresence(connected, microphoneActive) {
@@ -411,7 +444,7 @@ function reportTopviewPresence(connected, microphoneActive) {
       display_name: "Teacher",
       role: "facilitator",
       room_name: elements.roomInput.value.trim(),
-      language: "en",
+      language: elements.nativeLanguageInput.value,
       microphone_active: microphoneActive
     })
   }).catch(function () {});
@@ -439,6 +472,7 @@ function startFacilitatorMicMeter() {
       const threshold = (index + 1) / bars.length;
       bar.classList.toggle("active", level >= threshold * 0.72);
     });
+    if (facilitatorSpeechActive && level >= 0.08) resetFacilitatorSilenceTimeout();
     facilitatorMicAnalyserFrame = window.requestAnimationFrame(renderMeter);
   }
 
@@ -456,6 +490,7 @@ function startFacilitatorSpeechCapture() {
   streamPromise.then(function (stream) {
     facilitatorSpeechStream = stream;
     facilitatorSpeechActive = true;
+    resetFacilitatorSilenceTimeout();
     recordFacilitatorSpeechChunk();
   }).catch(function (error) {
     setConnectionStatus("Facilitator speech capture unavailable: " + error.message);
@@ -473,6 +508,7 @@ function recordFacilitatorSpeechChunk() {
       headers: {
         "Content-Type": "audio/webm",
         "X-Participant-Id": "facilitator-1",
+        "X-Native-Language": elements.nativeLanguageInput.value,
         "X-Target-Language": "en",
         "X-Speech-Sequence": String(speechSequence)
       },
@@ -480,6 +516,10 @@ function recordFacilitatorSpeechChunk() {
     }).then(function (response) {
       return response.json();
     }).then(function (payload) {
+      if (payload.transcript && payload.transcript.ignored) {
+        appendRoomMessage("Speech ignored because it was not detected as " + elements.nativeLanguageInput.options[elements.nativeLanguageInput.selectedIndex].text + ".");
+        return;
+      }
       if (payload.transcript && payload.transcript.text) {
         appendRoomMessage("Facilitator: " + payload.transcript.text);
       }

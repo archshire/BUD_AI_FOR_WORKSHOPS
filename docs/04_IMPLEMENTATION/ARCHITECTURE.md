@@ -101,9 +101,10 @@ facilitator without permission.
 
 ### Local provider services
 
-- **Whisper**: faster-whisper speech-to-text service on port `8787`.
+- **Whisper**: multilingual faster-whisper `small` speech-to-text service on
+  port `8787`, using beam size 4 by default.
 - **NLLB**: CTranslate2 translation service on port `8788` for English,
-  Spanish, Simplified Chinese, Burmese, and French.
+  Spanish, Simplified Chinese, Burmese, French, and Thai.
 - **Qwen**: local `llama-cpp-python` text response service on port `8790`.
   The current hardware-constrained demo uses
   `Qwen3-1.7B.Q4_K_M.gguf` in non-thinking mode. The larger Qwen3-8B direction

@@ -2105,6 +2105,65 @@ to the same approved workshop reference point. The separate Source Pack
 boundary also prevents private learner context from silently becoming shared
 teaching material and gives future retrieval/storage work a stable contract.
 
+### Session CJ-065
+
+```yaml
+session_id: CJ-065
+date: 2026-07-26
+trigger: Human clarified that stale-output suppression must preserve prerequisite context for future understanding.
+scope: Item 15 - Failure and recovery behavior.
+authority: human clarification
+```
+
+#### Locked Outcome
+
+Bud discards only a delayed response that no longer matches the current
+workshop context. It preserves permitted transcripts, events, and relevant
+prior context, then re-anchors on the latest context for the next sensemaking
+pass. If earlier prerequisite context is unclear, Bud asks or waits rather
+than pretending to understand it.
+
+#### Clarification Rationale
+
+Freshness prevents obsolete output from interrupting the workshop; it must not
+turn context continuity into context erasure. Later understanding may depend on
+what came before.
+
+#### Progress
+
+Item 15 remains active. The stale-result rule is now explicitly separated into
+output invalidation and context preservation.
+
+### Session CJ-066
+
+```yaml
+session_id: CJ-066
+date: 2026-07-26
+trigger: Human approved replacing the Whisper base default with multilingual small and adding Thai translation support.
+scope: Item 21 - Provider and latency implementation refinement.
+authority: human clarification
+```
+
+#### Locked Outcome
+
+The current prototype uses multilingual faster-whisper `small` with beam size
+4 by default. Beam size 1 remains available for latency comparison. Thai is
+part of the supported native-language and translation option set and is mapped
+through the local NLLB service.
+
+#### Clarification Rationale
+
+The small model is the next practical quality upgrade from base while keeping
+the local STT architecture intact. Thai expands the multilingual demonstration
+without merging speech recognition, translation, and Bud reasoning into one
+opaque provider. Final latency and quality claims still require benchmarking
+on the actual demo hardware.
+
+#### Progress
+
+Item 21 remains implementation-refinement work. The provider default is now
+explicit, while benchmark results remain an acceptance gate.
+
 ## Clarification Rationale Tracking
 
 Use this section to preserve cognitive traversal lineage.
@@ -2231,6 +2290,9 @@ Use for significant changes in project intent, philosophy, jurisdiction, accepte
 | MCS-001 | 2026-07-25 | Product AI naming clarified. | Project referred to as AI Partner in source docs. | Current generated constitutional artifacts refer to Bud AI / Bud. | Human explicitly named the AI. | TR-001 |
 | MCS-002 | 2026-07-26 | Live-vid media boundary clarified. | Video was excluded from the MVP interface and media behavior was unspecified. | Optional LiveKit camera and screen media are added for communication, with one main share and no AI media processing. | This adds demo value while preserving voice/text AI latency, privacy, and bounded authority. | CJ-063, LT-020, LT-055 through LT-064 |
 | MCS-003 | 2026-07-26 | Workshop Source Pack grounding clarified. | Bud's shared grounding was described mainly as prompts, transcripts, and normalized workshop events; facilitator materials had no defined lifecycle or evidence boundary. | The facilitator may upload approved PPTX, PDF, or DOCX material, or import an explicitly exported Google Slides file. One versioned, workshop-scoped Source Pack becomes shared grounding after facilitator activation. Bud preserves source locations and never absorbs private learner-Bud content automatically. | This gives every Bud a common facilitator-led reference point, enriches grounded support, and prevents answers from drifting away from the workshop's actual materials. | CJ-064, LT-065 through LT-070 |
+| MCS-004 | 2026-07-26 | Native-language input boundary clarified. | The setup language selector only described displayed translation, while speech input was accepted without a participant-selected language boundary. | Participant and facilitator setup now separates native input language from Translate to. Speech detected in another supported language is visibly ignored and does not enter translation, workshop evidence, or AI reasoning. | This prevents accidental cross-language audio from contaminating shared workshop context while preserving multilingual display translation. | LT-071 |
+| MCS-005 | 2026-07-26 | Ambient microphone capture replaced with bounded talk turns. | The microphone control published audio and left the recorder loop running after one activation, making Bud effectively ambient-listening. | Participants and facilitators explicitly start and stop a talk turn. The active button says `Stop talking`, and 15 seconds without meaningful audio ends the turn automatically. | Explicit capture makes agency, privacy, processing cost, and the transcription boundary visible while keeping live speech available when requested. | LT-072 |
+| MCS-006 | 2026-07-26 | Current multilingual speech/translation configuration expanded. | The prototype used Whisper `base` and documented five language options. | The prototype uses multilingual faster-whisper `small` with beam size 4 by default, supports Thai through the NLLB translation path, and retains beam size 1 as a latency comparison. | This raises likely recognition quality and expands the multilingual demo while preserving a configurable low-latency fallback and separate STT/translation responsibilities. | CJ-066, LT-043, LT-071 |
 
 ## Traceability Index
 

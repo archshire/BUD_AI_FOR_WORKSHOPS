@@ -11,6 +11,8 @@ NormalizedEvent -> Bud Core -> AiDecision -> validator -> tool -> state update
 
 The local demo now includes faster-whisper STT, NLLB translation, and a
 CPU-local Qwen3-1.7B quantized model for private text replies.
+Voice transcription defaults to multilingual faster-whisper `small` with
+beam size 4; `WHISPER_BEAM_SIZE=1` remains available for latency comparison.
 
 ## Contents
 
@@ -43,6 +45,10 @@ From the repository root, the Docker Compose demo is also available:
 make up
 ```
 
+The first Compose launch downloads the Whisper `small` model into the
+persistent `whisper-models` volume. Later launches reuse that volume. Set
+`WHISPER_MODEL` explicitly if benchmarking another Whisper variant.
+
 When the services are ready, use:
 
 - `http://127.0.0.1:3002/` for a participant
@@ -73,7 +79,11 @@ To run only the speech service manually:
 ```
 
 The browser sends short microphone chunks to the localhost Whisper service;
-Bud converts completed results into normalized utterance events.
+Bud converts completed results into normalized utterance events. Microphone
+capture is bounded by explicit `Talk to Bud` / `Talk to Facil-Bud` controls and
+stops when the user presses `Stop talking` or after 15 seconds without
+meaningful audio. Bud and Facil-Bud message histories remain scrollable within
+bounded client panels.
 
 ## Current Capabilities
 
@@ -97,7 +107,7 @@ Bud converts completed results into normalized utterance events.
   existing manual room scan retained as an explicit refresh.
 - Browser LiveKit client connection and microphone publishing controls.
 - Local faster-whisper transcription and NLLB translation services for
-  English, Spanish, Simplified Chinese, Burmese, and French.
+  English, Spanish, Simplified Chinese, Burmese, French, and Thai.
 - Local Qwen3-1.7B text response service for private Bud questions on port
   8790; replies are grounded with the current workshop prompt and run with
   Qwen3's non-thinking mode for lower latency.

@@ -13,7 +13,7 @@ services:
     environment:
       STT_HOST: 0.0.0.0
       STT_PORT: 8787
-      WHISPER_MODEL: ${WHISPER_MODEL:-base}
+      WHISPER_MODEL: ${WHISPER_MODEL:-small}
       HF_HOME: /models/huggingface
     volumes:
       - whisper-models:/models

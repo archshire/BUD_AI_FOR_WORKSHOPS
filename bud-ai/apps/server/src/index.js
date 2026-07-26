@@ -201,8 +201,29 @@ function createServer(options) {
           }
           const sttCompletedAt = Date.now();
           const participantId = headers["x-participant-id"] || config.participant_id;
+          const nativeLanguage = normalizeLanguage(headers["x-native-language"]);
           const targetLanguage = headers["x-target-language"] || "es";
           const speechSequence = headers["x-speech-sequence"] || null;
+          if (nativeLanguage && transcript.language !== nativeLanguage) {
+            recordTranscriptionDiagnostic(diagnostics, participantId, {
+              stt: sttCompletedAt - requestStartedAt,
+              translation: 0,
+              total: Date.now() - requestStartedAt
+            }, false);
+            return sendJson(res, {
+              transcript: Object.assign({}, transcript, {
+                text: "",
+                ignored: true,
+                ignored_reason: "Detected language does not match the selected native language."
+              }),
+              native_language: nativeLanguage,
+              translation: null,
+              speech_sequence: speechSequence,
+              events: [],
+              result: null,
+              state: learnerState(runtime, participantId)
+            });
+          }
           const utteranceId = "utterance-" + Date.now();
           const sourceEvent = baseEvent({
             event_id: "stt-partial-" + Date.now(),
@@ -664,6 +685,11 @@ function seedWorkshop(runtime) {
 function cleanRoomName(value) {
   const name = String(value || "").trim();
   return /^[a-zA-Z0-9][a-zA-Z0-9_-]{1,63}$/.test(name) ? name : "";
+}
+
+function normalizeLanguage(value) {
+  const language = String(value || "").trim().toLowerCase();
+  return ["en", "es", "zh", "my", "fr", "th"].indexOf(language) === -1 ? "" : language;
 }
 
 function recordTranscriptionDiagnostic(diagnostics, participantId, timings, providerError) {

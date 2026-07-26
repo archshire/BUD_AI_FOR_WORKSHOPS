@@ -18,6 +18,7 @@ const elements = {
   connectionStatus: document.getElementById("connection-status"),
   roomInput: document.getElementById("room-input"),
   nameInput: document.getElementById("name-input"),
+  nativeLanguageInput: document.getElementById("native-language-input"),
   languageInput: document.getElementById("language-input"),
   connectButton: document.getElementById("connect-button"),
   microphoneButton: document.getElementById("microphone-button"),
@@ -48,6 +49,8 @@ let roomParticipants = {};
 let speechChunkSequence = 0;
 let latestSpeechSequence = 0;
 let periodicSummaryTimer = null;
+let silenceTimeout = null;
+const SILENCE_TIMEOUT_MS = 15000;
 
 function getParticipantId() {
   const key = "bud-participant-id";
@@ -110,7 +113,7 @@ function boot() {
     postJson("/api/group-message", {
       participant_id: PARTICIPANT_ID,
       text: text,
-      language: "en"
+      language: elements.nativeLanguageInput.value
     });
   });
 
@@ -292,17 +295,44 @@ function requestPeriodicSummary() {
 
 function publishMicrophone() {
   if (!livekitRoom) return;
+  if (speechCaptureActive) {
+    stopTalking();
+    return;
+  }
   livekitRoom.localParticipant.setMicrophoneEnabled(true)
     .then(function () {
-      elements.microphoneButton.textContent = "Microphone active";
-      elements.microphoneButton.disabled = true;
-      elements.micStatusText.textContent = "Microphone active";
+      elements.microphoneButton.textContent = "Stop talking";
+      elements.microphoneButton.disabled = false;
+      elements.micStatusText.textContent = "Listening for your message...";
       reportTopviewPresence(true, true);
       startMicMeter();
       startSpeechCapture();
-      appendRoomMessage("Microphone published to the workshop.");
+      appendRoomMessage("Bud is listening. Press Stop talking when you are finished.");
     })
     .catch(function (error) { setConnectionStatus("Microphone unavailable: " + error.message); });
+}
+
+function stopTalking(reason) {
+  speechCaptureActive = false;
+  if (silenceTimeout) {
+    window.clearTimeout(silenceTimeout);
+    silenceTimeout = null;
+  }
+  if (speechRecorder && speechRecorder.state === "recording") speechRecorder.stop();
+  if (livekitRoom) livekitRoom.localParticipant.setMicrophoneEnabled(false).catch(function () {});
+  if (micAnalyserFrame) {
+    window.cancelAnimationFrame(micAnalyserFrame);
+    micAnalyserFrame = null;
+  }
+  Array.prototype.forEach.call(elements.micMeter.children, function (bar) { bar.classList.remove("active"); });
+  elements.microphoneButton.textContent = "Talk to Bud";
+  elements.micStatusText.textContent = "Microphone off";
+  reportTopviewPresence(true, false);
+  if (reason === "silence") {
+    appendRoomMessage("Bud stopped listening after 15 seconds of silence.");
+  } else {
+    appendRoomMessage("Bud stopped listening.");
+  }
 }
 
 function reportTopviewPresence(connected, microphoneActive) {
@@ -315,7 +345,7 @@ function reportTopviewPresence(connected, microphoneActive) {
       display_name: elements.nameInput.value.trim() || PARTICIPANT_ID,
       role: "learner",
       room_name: elements.roomInput.value.trim(),
-      language: elements.languageInput.value,
+      language: elements.nativeLanguageInput.value,
       microphone_active: microphoneActive
     })
   }).catch(function () {});
@@ -331,11 +361,19 @@ function startSpeechCapture() {
   streamPromise.then(function (stream) {
     speechCaptureStream = stream;
     speechCaptureActive = true;
+    resetSilenceTimeout();
     appendRoomMessage("Local Whisper capture active.");
     recordSpeechChunk();
   }).catch(function (error) {
     setConnectionStatus("Speech capture unavailable: " + error.message);
   });
+}
+
+function resetSilenceTimeout() {
+  if (silenceTimeout) window.clearTimeout(silenceTimeout);
+  silenceTimeout = window.setTimeout(function () {
+    if (speechCaptureActive) stopTalking("silence");
+  }, SILENCE_TIMEOUT_MS);
 }
 
 function recordSpeechChunk() {
@@ -352,6 +390,7 @@ function recordSpeechChunk() {
         headers: {
           "Content-Type": "audio/webm",
           "X-Participant-Id": PARTICIPANT_ID,
+          "X-Native-Language": elements.nativeLanguageInput.value,
           "X-Target-Language": targetLanguage,
           "X-Speech-Sequence": String(speechSequence)
         },
@@ -360,7 +399,11 @@ function recordSpeechChunk() {
         return response.json();
       }).then(function (payload) {
         if (Number(payload.speech_sequence) < latestSpeechSequence) {
-          appendRoomMessage("Older speech result discarded because newer context is available.");
+          appendRoomMessage("Older Bud response discarded because newer context is available; the earlier context remains saved.");
+          return;
+        }
+        if (payload.transcript && payload.transcript.ignored) {
+          appendRoomMessage("Speech ignored because it was not detected as " + languageName(elements.nativeLanguageInput.value) + ".");
           return;
         }
         if (payload.transcript && payload.transcript.text) {
@@ -409,7 +452,7 @@ function startMicMeter() {
   const data = new Uint8Array(analyser.frequencyBinCount);
   const bars = Array.prototype.slice.call(elements.micMeter.children);
 
-    function renderMeter() {
+  function renderMeter() {
       analyser.getByteFrequencyData(data);
       let total = 0;
       data.forEach(function (value) { total += value; });
@@ -418,6 +461,7 @@ function startMicMeter() {
         const threshold = (index + 1) / bars.length;
         bar.classList.toggle("active", level >= threshold * 0.72);
       });
+      if (speechCaptureActive && level >= 0.08) resetSilenceTimeout();
       micAnalyserFrame = window.requestAnimationFrame(renderMeter);
     }
 
