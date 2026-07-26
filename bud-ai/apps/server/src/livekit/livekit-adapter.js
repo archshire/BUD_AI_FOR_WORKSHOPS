@@ -1,4 +1,5 @@
 const { AccessToken, RoomServiceClient } = require("livekit-server-sdk");
+const { TrackSource } = require("@livekit/protocol");
 
 function livekitConfig(env) {
   const source = env || process.env;
@@ -49,7 +50,9 @@ async function createParticipantToken(input, env) {
     canPublish: true,
     canPublishData: true,
     canSubscribe: true,
-    canPublishSources: input.role === "facilitator" || input.screen_share_allowed ? ["microphone", "camera", "screen_share"] : ["microphone"]
+    canPublishSources: input.role === "facilitator" || input.screen_share_allowed
+      ? [TrackSource.MICROPHONE, TrackSource.CAMERA, TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO]
+      : [TrackSource.MICROPHONE]
   });
 
   return {

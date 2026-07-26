@@ -3,6 +3,7 @@ const http = require("http");
 const path = require("path");
 const { createBudRuntime } = require("./runtime");
 const { createSourcePackStore } = require("./source-pack");
+const { groqSttConfigured, transcribeWithGroq } = require("./providers/groq-stt");
 const { baseEvent } = require("../../../packages/test-fixtures/src/demo-events");
 
 const WEB_ROOT = path.resolve(__dirname, "../../web/src/app");
@@ -204,26 +205,10 @@ function createServer(options) {
           const nativeLanguage = normalizeLanguage(headers["x-native-language"]);
           const targetLanguage = headers["x-target-language"] || "es";
           const speechSequence = headers["x-speech-sequence"] || null;
-          if (nativeLanguage && transcript.language !== nativeLanguage) {
-            recordTranscriptionDiagnostic(diagnostics, participantId, {
-              stt: sttCompletedAt - requestStartedAt,
-              translation: 0,
-              total: Date.now() - requestStartedAt
-            }, false);
-            return sendJson(res, {
-              transcript: Object.assign({}, transcript, {
-                text: "",
-                ignored: true,
-                ignored_reason: "Detected language does not match the selected native language."
-              }),
-              native_language: nativeLanguage,
-              translation: null,
-              speech_sequence: speechSequence,
-              events: [],
-              result: null,
-              state: learnerState(runtime, participantId)
-            });
-          }
+          // Whisper is told which language to expect, so its reported language is a
+          // weak signal at best. A mismatch is no longer grounds for dropping the
+          // utterance — doing that silently deleted a large share of real speech.
+          if (nativeLanguage) transcript.language = nativeLanguage;
           const utteranceId = "utterance-" + Date.now();
           const sourceEvent = baseEvent({
             event_id: "stt-partial-" + Date.now(),
@@ -726,6 +711,7 @@ function topviewState(diagnostics, roomDirectory) {
     providers: {
       livekit: Boolean(process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET),
       whisper: Boolean(process.env.STT_HOST || process.env.STT_PORT),
+      groq_stt: groqSttConfigured(),
       translation: Boolean(process.env.TRANSLATION_HOST || process.env.TRANSLATION_PORT),
       qwen: Boolean(process.env.LLM_HOST || process.env.LLM_PORT)
     },
@@ -898,15 +884,38 @@ function readBinary(req, res, callback) {
   });
 }
 
+// Routes to hosted Groq when a key is present, otherwise to the local Whisper
+// container. A Groq failure (no quota, network, bad key) falls back to local rather
+// than dropping the utterance, so a demo never dies on a missing API key.
 function transcribeAudio(audio, headers, callback) {
+  const languageHint = normalizeLanguage(headers["x-native-language"]);
+  const contentType = headers["content-type"] || "audio/webm";
+  const preferGroq = String(process.env.STT_PROVIDER || "").toLowerCase() !== "local" && groqSttConfigured();
+
+  if (!preferGroq) {
+    return transcribeWithLocalWhisper(audio, contentType, languageHint, callback);
+  }
+
+  transcribeWithGroq(audio, contentType, languageHint)
+    .then(function (transcript) { callback(null, transcript); })
+    .catch(function (error) {
+      console.warn("Groq STT failed, falling back to local Whisper:", error.message);
+      transcribeWithLocalWhisper(audio, contentType, languageHint, callback);
+    });
+}
+
+function transcribeWithLocalWhisper(audio, contentType, languageHint, callback) {
   const request = http.request({
     hostname: process.env.STT_HOST || "127.0.0.1",
     port: Number(process.env.STT_PORT || 8787),
     path: "/transcribe",
     method: "POST",
     headers: {
-      "Content-Type": headers["content-type"] || "audio/webm",
-      "Content-Length": audio.length
+      "Content-Type": contentType,
+      "Content-Length": audio.length,
+      // Pinning the language stops Whisper re-guessing it on every short chunk,
+      // which is where Burmese in particular gets misread as a neighbouring script.
+      "X-Language-Hint": languageHint
     }
   }, function (response) {
     let body = "";

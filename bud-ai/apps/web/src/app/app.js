@@ -47,10 +47,27 @@ let speechCaptureStream = null;
 let speechCaptureActive = false;
 let roomParticipants = {};
 let speechChunkSequence = 0;
-let latestSpeechSequence = 0;
+let latestRenderedSequence = 0;
 let periodicSummaryTimer = null;
 let silenceTimeout = null;
 const SILENCE_TIMEOUT_MS = 15000;
+
+// Utterance segmentation. Chunks are cut where the speaker pauses rather than on a
+// fixed timer, so the recorder restart gap always lands in silence instead of
+// mid-word, and Whisper receives whole phrases instead of arbitrary slices.
+let speechVadContext = null;
+let speechVadAnalyser = null;
+let speechVadData = null;
+let speechVadTimer = null;
+let speechVadEnabled = false;
+let speechHeardInChunk = false;
+let speechLastHeardAt = 0;
+let speechChunkStartedAt = 0;
+const SPEECH_LEVEL_THRESHOLD = 0.06;
+const SPEECH_PAUSE_MS = 700;
+const SPEECH_MAX_UTTERANCE_MS = 15000;
+const SPEECH_IDLE_RECYCLE_MS = 6000;
+const SPEECH_VAD_INTERVAL_MS = 50;
 
 function getParticipantId() {
   const key = "bud-participant-id";
@@ -319,6 +336,7 @@ function stopTalking(reason) {
     silenceTimeout = null;
   }
   if (speechRecorder && speechRecorder.state === "recording") speechRecorder.stop();
+  stopSpeechVad();
   if (livekitRoom) livekitRoom.localParticipant.setMicrophoneEnabled(false).catch(function () {});
   if (micAnalyserFrame) {
     window.cancelAnimationFrame(micAnalyserFrame);
@@ -362,11 +380,70 @@ function startSpeechCapture() {
     speechCaptureStream = stream;
     speechCaptureActive = true;
     resetSilenceTimeout();
+    startSpeechVad(stream);
     appendRoomMessage("Local Whisper capture active.");
     recordSpeechChunk();
   }).catch(function (error) {
     setConnectionStatus("Speech capture unavailable: " + error.message);
   });
+}
+
+// Watches the microphone level on the same stream the recorder is using, and closes
+// the current chunk once the speaker has paused. Runs on a timer rather than
+// requestAnimationFrame so segmentation keeps working in a background tab.
+function startSpeechVad(stream) {
+  stopSpeechVad();
+  speechVadEnabled = false;
+  if (!window.AudioContext) return;
+  speechVadContext = new window.AudioContext();
+  speechVadAnalyser = speechVadContext.createAnalyser();
+  speechVadAnalyser.fftSize = 256;
+  speechVadContext.createMediaStreamSource(stream).connect(speechVadAnalyser);
+  speechVadData = new Uint8Array(speechVadAnalyser.frequencyBinCount);
+  speechVadEnabled = true;
+
+  speechVadTimer = window.setInterval(function () {
+    if (!speechCaptureActive) return;
+    speechVadAnalyser.getByteFrequencyData(speechVadData);
+    let total = 0;
+    speechVadData.forEach(function (value) { total += value; });
+    const level = total / speechVadData.length / 48;
+    const now = Date.now();
+
+    if (level >= SPEECH_LEVEL_THRESHOLD) {
+      speechHeardInChunk = true;
+      speechLastHeardAt = now;
+    }
+
+    if (!speechRecorder || speechRecorder.state !== "recording") return;
+    const elapsed = now - speechChunkStartedAt;
+
+    if (speechHeardInChunk) {
+      // Cut on a sustained pause, or force a cut if someone talks without pausing.
+      if (now - speechLastHeardAt >= SPEECH_PAUSE_MS || elapsed >= SPEECH_MAX_UTTERANCE_MS) {
+        speechRecorder.stop();
+      }
+    } else if (elapsed >= SPEECH_IDLE_RECYCLE_MS) {
+      // Nothing but silence so far — recycle the recorder rather than buffering it.
+      speechRecorder.stop();
+    }
+  }, SPEECH_VAD_INTERVAL_MS);
+}
+
+function stopSpeechVad() {
+  if (speechVadTimer) {
+    window.clearInterval(speechVadTimer);
+    speechVadTimer = null;
+  }
+  if (speechVadContext) {
+    speechVadContext.close().catch(function () {});
+    speechVadContext = null;
+  }
+  speechVadAnalyser = null;
+  speechVadData = null;
+  // speechHeardInChunk is deliberately left alone: the recorder's final
+  // ondataavailable fires after this runs and still needs to know whether the
+  // closing chunk actually contained speech.
 }
 
 function resetSilenceTimeout() {
@@ -380,10 +457,12 @@ function recordSpeechChunk() {
   if (!speechCaptureActive) return;
   speechRecorder = new MediaRecorder(speechCaptureStream, { mimeType: "audio/webm" });
   speechRecorder.ondataavailable = function (event) {
+    // Skip chunks that were pure silence — they cost a round trip and Whisper
+    // tends to hallucinate filler text when handed nothing but background noise.
+    if (speechVadEnabled && !speechHeardInChunk) return;
     if (event.data && event.data.size > 0) {
       const form = new Blob([event.data], { type: "audio/webm" });
       const speechSequence = ++speechChunkSequence;
-      latestSpeechSequence = speechSequence;
       const targetLanguage = elements.languageInput.value;
       fetch("/api/transcribe", {
         method: "POST",
@@ -398,10 +477,11 @@ function recordSpeechChunk() {
       }).then(function (response) {
         return response.json();
       }).then(function (payload) {
-        if (Number(payload.speech_sequence) < latestSpeechSequence) {
+        if (Number(payload.speech_sequence) < latestRenderedSequence) {
           appendRoomMessage("Older Bud response discarded because newer context is available; the earlier context remains saved.");
           return;
         }
+        latestRenderedSequence = Number(payload.speech_sequence);
         if (payload.transcript && payload.transcript.ignored) {
           appendRoomMessage("Speech ignored because it was not detected as " + languageName(elements.nativeLanguageInput.value) + ".");
           return;
@@ -425,10 +505,16 @@ function recordSpeechChunk() {
   speechRecorder.onstop = function () {
     if (speechCaptureActive) recordSpeechChunk();
   };
+  speechHeardInChunk = false;
+  speechChunkStartedAt = Date.now();
+  speechLastHeardAt = speechChunkStartedAt;
   speechRecorder.start();
-  window.setTimeout(function () {
-    if (speechRecorder && speechRecorder.state === "recording") speechRecorder.stop();
-  }, 4000);
+  if (!speechVadEnabled) {
+    // No Web Audio support: fall back to the old fixed-length chunking.
+    window.setTimeout(function () {
+      if (speechRecorder && speechRecorder.state === "recording") speechRecorder.stop();
+    }, 4000);
+  }
 }
 
 function startMicMeter() {

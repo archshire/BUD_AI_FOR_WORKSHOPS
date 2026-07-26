@@ -14,6 +14,8 @@ services:
       STT_HOST: 0.0.0.0
       STT_PORT: 8787
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_BEAM_SIZE: ${WHISPER_BEAM_SIZE:-2}
+      WHISPER_CPU_THREADS: ${WHISPER_CPU_THREADS:-8}
       HF_HOME: /models/huggingface
     volumes:
       - whisper-models:/models
@@ -60,6 +62,9 @@ services:
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
       STT_HOST: whisper
       STT_PORT: 8787
+      STT_PROVIDER: ${STT_PROVIDER:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_STT_MODEL: ${GROQ_STT_MODEL:-whisper-large-v3}
       TRANSLATION_HOST: translation
       TRANSLATION_PORT: 8788
       LLM_HOST: qwen
