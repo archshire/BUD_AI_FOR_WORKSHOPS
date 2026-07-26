@@ -8,6 +8,12 @@ Draft build sequence for Bud AI MVP.
 
 Build the intelligence path, then establish the native LiveKit workshop runtime before considering external-platform adapters.
 
+## Contents
+
+- [Principle](#principle)
+- [Sequence](#sequence)
+- [Suggested First Sprint](#suggested-first-sprint)
+
 ## Sequence
 
 ### 1. Contract Types

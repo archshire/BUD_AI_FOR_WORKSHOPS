@@ -10,6 +10,23 @@ downstream contracts.
 
 ------------------------------------------------------------------------
 
+## Contents
+
+- [Purpose](#1-purpose)
+- [Governing Behavioral Doctrine](#2-governing-behavioral-doctrine)
+- [Epistemic Model](#3-epistemic-model)
+- [Authority Model](#4-authority-model)
+- [Workshop Lifecycle](#5-workshop-lifecycle)
+- [State Models](#6-workshopdefinitionstate-and-workshopmodel)
+- [ME, US, and THE ROOM](#7-participantstate--me)
+- [Privacy and Information Projection](#10-privacy-and-information-projection)
+- [Linguistic and Meaning Pipeline](#11-linguistic-and-meaning-pipeline)
+- [Intervention Doctrine](#13-intervention-doctrine)
+- [Failure and Uncertainty Behavior](#16-failure-and-uncertainty-behavior)
+- [Prototype Boundaries](#18-prototype-behavioral-boundaries)
+- [Open Decisions](#19-open-decisions)
+- [Downstream Contracts](#20-downstream-contracts-required)
+
 # 1. Purpose
 
 This document defines how the AI Partner system should behave.

@@ -16,6 +16,24 @@ The active native-platform PRD is retained separately. This Version 2
 candidate remains only as traceable history and must not be treated as
 the active direction.
 
+## Contents
+
+- [Product Definition](#1-product-definition)
+- [Problem](#2-problem)
+- [Product Thesis](#3-product-thesis)
+- [Prototype Objective](#4-prototype-objective)
+- [MVP Scope](#7-mvp-scope)
+- [Core User Journey](#8-core-user-journey)
+- [Language and Meaning](#11-language-and-meaning-requirements)
+- [ME Requirements](#12-me--participant-ai-partner-requirements)
+- [THE ROOM Requirements](#14-the-room--facilitator-ai-requirements)
+- [Privacy and Trust](#15-privacy-trust-and-permission-requirements)
+- [Architecture Constraints](#21-architecture-constraints)
+- [Acceptance Matrix](#24-acceptance-matrix--core-product-claims)
+- [Explicit Non-Goals](#26-explicit-non-goals)
+- [Final Product Contract](#31-final-product-contract)
+- [PRD Evolution Record](#prd-evolution-record)
+
 ------------------------------------------------------------------------
 
 # 1. Product Definition

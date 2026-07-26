@@ -4,6 +4,17 @@
 
 ---
 
+## Contents
+
+- [What Are We Building?](#1-what-are-we-building-in-one-sentence)
+- [The Problem](#2-the-problem-in-human-terms)
+- [The Three AI Modes](#3-the-three-modes-the-ai-operates-in)
+- [Users](#4-who-are-the-users)
+- [Workshop Context](#5-what-grounds-the-ai--the-workshop-context)
+- [Example Session](#6-walking-through-a-real-session)
+- [Principles](#8-the-principles-holding-all-of-this-together)
+- [Definition of Done](#9-what-done-looks-like)
+
 ## 1. What are we building, in one sentence?
 
 A **live video/voice/text workshop app** (like a purpose-built Zoom) where an **AI assistant sits with every participant and the facilitator**, helping people understand each other across languages — not just translating words, but noticing confusion, helping repair misunderstandings, and giving the facilitator a real-time read on how the room is actually doing.

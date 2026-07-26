@@ -2,6 +2,15 @@
 
 **Status:** Canonical reconstructed edition audit
 
+## Contents
+
+- [Sources and Reconstruction Note](#sources-and-reconstruction-note)
+- [Cross-Document Consistency Audit](#cross-document-consistency-audit)
+- [Superseded and Refined Ideas](#supersededrefined-ideas)
+- [Remaining Open Contracts](#remaining-open-contracts-before-implementation-ready-prd)
+- [Traceability Spine](#traceability-spine)
+- [Audit Verdict](#audit-verdict)
+
 ## Sources and reconstruction note
 
 The exact earlier generated Markdown artifacts were not recoverable as stored files. These canonical editions were reconstructed from preserved conversation decisions and checked against the available official hackathon brief/team ideation. They are not represented as byte-for-byte originals.

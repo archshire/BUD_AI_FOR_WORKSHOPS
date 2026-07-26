@@ -4,6 +4,14 @@
 
 Draft contract for Bud AI MVP implementation.
 
+## Contents
+
+- [Tool Execution Rule](#tool-execution-rule)
+- [Tool Registry](#tool-registry)
+- [Shared Types](#shared-types)
+- [Global Rejection Conditions](#global-rejection-conditions)
+- [Open Decisions](#open-decisions)
+
 This contract defines bounded tools Bud AI Core may request. Tools are executed by the application only after validation.
 
 ## Tool Execution Rule

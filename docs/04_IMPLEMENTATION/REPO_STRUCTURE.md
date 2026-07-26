@@ -4,6 +4,14 @@
 
 Draft repository structure for Bud AI MVP.
 
+## Contents
+
+- [Current Documentation and Source Layout](#current-documentation-and-source-layout)
+- [Ownership Boundaries](#ownership-boundaries)
+- [Boundary Rules](#boundary-rules)
+- [Naming Conventions](#naming-conventions)
+- [Documentation Placement](#documentation-placement)
+
 ## Current Documentation And Source Layout
 
 ```text

@@ -7,6 +7,41 @@ and demonstrated.\
 ADR-001, System Behavior Specification, and Codex/Krystalize Handoff
 Protocol.
 
+## Contents
+
+- [Product Definition](#1-product-definition)
+- [Problem](#2-problem)
+- [Product Thesis](#3-product-thesis)
+- [Prototype Objective](#4-prototype-objective)
+- [Success Definition](#5-success-definition)
+- [Users and Roles](#6-users-and-roles)
+- [MVP Scope](#7-mvp-scope)
+- [Core User Journey](#8-core-user-journey)
+- [Workshop Setup](#9-workshop-setup-requirements)
+- [Realtime Communication](#10-real-time-communication-requirements)
+- [Language and Meaning](#11-language-and-meaning-requirements)
+- [ME Requirements](#12-me--participant-ai-partner-requirements)
+- [US Requirements](#13-us--group-and-peer-meaning-requirements)
+- [THE ROOM Requirements](#14-the-room--facilitator-ai-requirements)
+- [Privacy and Trust](#15-privacy-trust-and-permission-requirements)
+- [State Requirements](#16-state-requirements)
+- [AI Decision Requirements](#17-ai-decision-requirements)
+- [Intervention and Escalation](#18-intervention-and-escalation-requirements)
+- [Inference Lifecycle](#19-inference-lifecycle-requirements)
+- [UX Surfaces](#20-ux--required-surfaces)
+- [Architecture Constraints](#21-architecture-constraints)
+- [Non-Functional Requirements](#22-non-functional-requirements)
+- [Failure and Adversarial Requirements](#23-failure-and-adversarial-requirements)
+- [Acceptance Matrix](#24-acceptance-matrix--core-product-claims)
+- [Demo Traceability](#25-demo-traceability)
+- [Explicit Non-Goals](#26-explicit-non-goals)
+- [Technical Contracts](#27-technical-contracts-required-beforealongside-implementation)
+- [Repository Deliverables](#28-repository-deliverables)
+- [Definition of Done](#29-definition-of-done)
+- [Deferred Technical Decisions](#30-implementation-refinements-and-deferred-technical-decisions)
+- [Final Product Contract](#31-final-product-contract)
+- [PRD Evolution Record](#prd-evolution-record)
+
 ------------------------------------------------------------------------
 
 # 1. Product Definition

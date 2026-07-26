@@ -8,6 +8,15 @@ Draft test and demo plan for Bud AI MVP.
 
 Prove Bud is a bounded but genuine real-time multilingual workshop partner, not a scripted translation demo.
 
+## Contents
+
+- [Goal](#goal)
+- [Problem Statement Traceability](#problem-statement-traceability)
+- [Test Layers](#test-layers)
+- [Demo Scenes](#demo-scenes)
+- [Judge Variation Checklist](#judge-variation-checklist)
+- [Done Criteria](#done-criteria)
+
 ## Problem Statement Traceability
 
 The current local prototype satisfies the mandatory requirements in

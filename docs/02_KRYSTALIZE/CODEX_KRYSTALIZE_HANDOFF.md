@@ -5,6 +5,21 @@
 project documentation before technical crystallization and
 implementation.
 
+## Contents
+
+- [Mission](#1-mission)
+- [Human Intent Statement](#2-human-intent-statement)
+- [Authoritative Inputs](#3-authoritative-inputs)
+- [Document Authority](#4-document-authority)
+- [Apply KRYSTALIZE](#6-phase-2--apply-krystalize)
+- [Non-Collapse Rule](#7-non-collapse-rule)
+- [Protected Product Invariants](#9-protected-product-invariants)
+- [Technical Crystallization](#12-phase-4--technical-crystallization)
+- [Implementation Plan](#14-phase-5--implementation-plan)
+- [Build Rules](#15-phase-6--build-rules)
+- [Verification](#16-phase-7--verification)
+- [Demo Integrity Gate](#17-demo-integrity-gate)
+
 ------------------------------------------------------------------------
 
 # 1. Mission

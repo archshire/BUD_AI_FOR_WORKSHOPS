@@ -2,6 +2,18 @@
 
 **Status:** Canonical reconstructed edition
 
+## Contents
+
+- [Purpose](#purpose)
+- [AI as Partner, Not Merely Tool](#1-ai-as-partner-not-merely-tool)
+- [Human Agency](#2-human-agency)
+- [Workshop Objective First](#3-workshop-objective-first)
+- [Evidence Before Judgment](#4-evidence-before-judgment)
+- [ME, US, and THE ROOM](#5-me--us--the-room)
+- [Privacy and Trust](#6-privacy-and-trust)
+- [Bounded Agency and Authority](#10-bounded-agency-and-authority)
+- [Epistemic Humility](#11-epistemic-humility)
+
 ## Purpose
 
 Build an AI-supported workshop environment that helps learners and facilitators achieve shared understanding across language differences during real-time learning.

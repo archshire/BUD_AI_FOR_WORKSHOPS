@@ -4,6 +4,15 @@
 
 Draft contract for Bud AI MVP implementation.
 
+## Contents
+
+- [Event Envelope](#event-envelope)
+- [Event Types](#event-types)
+- [Required Payloads](#required-payloads)
+- [Shared Types](#shared-types)
+- [Adapter Rules](#adapter-rules)
+- [Open Decisions](#open-decisions)
+
 This contract defines platform-independent events entering Bud AI Core. LiveKit, Zoom, or future adapters must translate platform-specific objects into these events before core reasoning.
 
 ## Event Envelope

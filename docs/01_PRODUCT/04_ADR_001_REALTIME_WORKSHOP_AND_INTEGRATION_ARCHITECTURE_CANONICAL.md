@@ -2,6 +2,17 @@
 
 **Status:** Accepted for Hackathon Prototype — Canonical reconstructed edition
 
+## Contents
+
+- [Decision](#decision)
+- [Why](#why)
+- [Alternatives](#alternatives)
+- [Layers](#layers)
+- [Voice and Language Pipeline](#voicelanguage-pipeline)
+- [Authority](#authority)
+- [Privacy](#privacy)
+- [Future Production Direction](#future-production-direction)
+
 ## Decision
 
 Build a **platform-independent AI Partner Core** and prove it first through a **lightweight standalone multi-user workshop web application using LiveKit for real-time communications**.

@@ -4,6 +4,16 @@
 
 Draft provider abstraction plan for Bud AI MVP.
 
+## Contents
+
+- [Purpose](#purpose)
+- [Locked Prototype Default](#locked-prototype-default)
+- [Provider Interfaces](#provider-interfaces)
+- [Development Providers](#development-providers)
+- [Real Provider Selection Criteria](#real-provider-selection-criteria)
+- [Fallback Behavior](#fallback-behavior)
+- [Open Decisions](#open-decisions)
+
 ## Purpose
 
 Bud should be able to start with development providers and later swap in real STT, translation, and LLM services without changing core contracts. The default local provider direction is now locked for the prototype, while exact runtime tuning remains open.

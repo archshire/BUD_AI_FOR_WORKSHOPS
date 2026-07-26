@@ -6,6 +6,17 @@ Current prototype architecture. This document is the formal architecture
 reference for the runnable Bud AI demo. It records both the system structure
 and the reasons behind the principal technology choices.
 
+## Contents
+
+- [Architectural Objective](#architectural-objective)
+- [Logical Architecture](#logical-architecture)
+- [Runtime Components](#runtime-components)
+- [Docker Compose Topology](#docker-compose-topology)
+- [Technology Choices and Rationale](#technology-choices-and-rationale)
+- [Privacy and Authority Boundaries](#privacy-and-authority-boundaries)
+- [Prototype Constraints](#prototype-constraints)
+- [Future Evolution](#future-evolution)
+
 ## Architectural Objective
 
 Bud AI is a native, multilingual workshop runtime. It gives each learner a

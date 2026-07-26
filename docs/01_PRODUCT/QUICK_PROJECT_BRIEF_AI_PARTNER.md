@@ -1,5 +1,15 @@
 # Quick Project Brief --- AI Partner for Multilingual Workshops
 
+## Contents
+
+- [What Are We Building?](#what-are-we-building)
+- [How the Idea Evolved](#how-the-idea-evolved)
+- [ME, US, and THE ROOM](#me--us--the-room)
+- [Observe Before Judging](#a-key-design-principle-the-ai-observes-before-it-judges)
+- [Privacy](#privacy-is-part-of-the-architecture)
+- [Hackathon Scope](#what-we-are-actually-building-for-the-hackathon)
+- [How We Reached the PRD](#how-we-got-to-the-prd)
+
 ## What are we building?
 
 We are building a prototype for an **AI Partner that actively supports

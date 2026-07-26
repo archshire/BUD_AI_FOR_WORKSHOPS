@@ -2,6 +2,17 @@
 
 **Status:** Canonical reconstructed edition
 
+## Contents
+
+- [Purpose](#purpose)
+- [Core Claim](#core-claim)
+- [Must Prove Deeply](#must-prove-deeply)
+- [Required Behavioral Safeguards](#required-behavioral-safeguards)
+- [Architecturally Supported / May Be Lighter](#architecturally-supported--may-be-lighter)
+- [Allowed Prototype Constraints](#allowed-prototype-constraints)
+- [Prohibited Prototype Shortcuts](#prohibited-prototype-shortcuts)
+- [Success Test](#success-test)
+
 ## Purpose
 
 This contract separates what the hackathon prototype must genuinely do from what is simplified, future-facing, or out of scope.

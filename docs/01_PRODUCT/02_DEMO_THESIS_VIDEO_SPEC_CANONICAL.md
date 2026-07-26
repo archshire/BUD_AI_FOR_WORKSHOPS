@@ -2,6 +2,18 @@
 
 **Status:** Canonical reconstructed edition
 
+## Contents
+
+- [Demo Thesis](#demo-thesis)
+- [Target Structure](#target-structure)
+- [Problem Framing](#problem-framing)
+- [Scene 1: Learner Support](#scene-1--facilitator--learner-translation-plus-understanding-support)
+- [Scene 2: Meaning Repair](#scene-2--peer--peer-meaning-repair-beyond-translation)
+- [Scene 3: Privacy](#scene-3--privacy-and-facilitator-awareness)
+- [Scene 4: Room Awareness](#scene-4--the-room-facilitator-ai-as-master-of-workshop-states)
+- [Demo Integrity Requirements](#demo-integrity-requirements)
+- [Tech-Stack Narrative](#tech-stack-narrative)
+
 ## Demo thesis
 
 The demonstration must prove that the product does more than translate speech.

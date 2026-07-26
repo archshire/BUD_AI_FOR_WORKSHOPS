@@ -4,6 +4,19 @@
 
 Draft contract for Bud AI MVP implementation.
 
+## Contents
+
+- [Authority Rule](#authority-rule)
+- [State Objects](#state-objects)
+- [WorkshopState](#workshopstate)
+- [ParticipantState - ME](#participantstate---me)
+- [GroupState - US](#groupstate---us)
+- [FacilitatorViewState - THE ROOM](#facilitatorviewstate---the-room-projection)
+- [Shared Types](#shared-types)
+- [Update Rules](#update-rules)
+- [MVP Persistence](#mvp-persistence)
+- [Open Decisions](#open-decisions)
+
 This contract defines the minimum authoritative state Bud needs to support ME, US, and THE ROOM without turning model output into automatic truth.
 
 ## Authority Rule

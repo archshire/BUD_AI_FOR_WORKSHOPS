@@ -6,6 +6,13 @@ LiveKit runtime.
 Start with the [documentation index](docs/00_INDEX.md). The active product
 requirements are in the [active PRD](docs/01_PRODUCT/PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS.md).
 
+## Contents
+
+- [Why Bud AI Exists](#why-bud-ai-exists)
+- [Main Areas](#main-areas)
+- [Docker Demo](#docker-demo)
+- [Licensing](#licensing)
+
 ## Why Bud AI Exists
 
 Bud AI is built around a simple design thesis: when AI is used as a partner
@@ -22,12 +29,24 @@ In a multilingual workshop, that friction can come from:
 - facilitators struggling to distinguish an individual difficulty from a
   room-wide pattern.
 
-A tool waits for an instruction and performs a defined operation. A partner
-exercises bounded agency toward a shared goal: it notices relevant signals,
-offers timely help, asks for clarification, surfaces patterns, and adapts to
-human responses. Bud's agency is deliberately constrained. Bud cannot override
-the learner's meaning, expose private conversations, make consequential
-facilitator decisions, or treat silence as proof of understanding.
+### More than a tool - AI as a partner
+
+AI as a tool waits for an instruction and performs an operation.
+
+AI as a partner, however, exercises agency bounded by guardrails to help its
+human partner achieve a shared goal. It maintains ongoing context with that
+partner, makes sense of where the partner is through permitted text or
+auditory input, and responds without requiring a fresh prompt each time. Bud
+notices relevant signals, offers timely help, asks for clarification, surfaces
+patterns, and adapts to its partner's responses.
+
+An AI tool may automate an operation, but it does not operate with this kind
+of ongoing, goal-directed agency. This is what distinguishes a partner from a
+tool in Bud AI's design.
+
+Bud's agency is deliberately constrained. Bud cannot override the learner's
+meaning, expose private conversations, make consequential facilitator
+decisions, or treat silence as proof of understanding.
 
 This partner model is evidenced by Bud's private context-grounded support,
 periodic learner summaries, optional adaptive check-ins, green/yellow/red

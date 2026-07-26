@@ -4,6 +4,16 @@
 
 Draft contract for Bud AI MVP implementation.
 
+## Contents
+
+- [Decision Envelope](#decision-envelope)
+- [Decision Types](#decision-types)
+- [Required Semantics](#required-semantics)
+- [Shared Types](#shared-types)
+- [Validation Rules](#validation-rules)
+- [Prompting Contract](#prompting-contract)
+- [Open Decisions](#open-decisions)
+
 This contract defines structured decisions proposed by Bud AI Core. Decisions are proposals, not authority. The application validates them against state, privacy, permissions, and allowed tools.
 
 ## Decision Envelope

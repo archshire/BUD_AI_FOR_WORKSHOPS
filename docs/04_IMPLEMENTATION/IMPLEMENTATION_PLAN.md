@@ -5,6 +5,17 @@
 Implementation-ready plan. Product meaning is locked; the critical runtime
 gaps identified by the problem-statement alignment audit remain to be built.
 
+## Contents
+
+- [Objective](#objective)
+- [Source of Truth](#source-of-truth)
+- [MVP Scope](#mvp-scope)
+- [Architecture](#architecture)
+- [Deployment Evolution](#deployment-evolution)
+- [Core Runtime Responsibilities](#core-runtime-responsibilities)
+- [Implementation Phases](#implementation-phases)
+- [Open Decisions](#open-decisions)
+
 ## Objective
 
 Build a native Bud AI workshop demonstration using LiveKit for real-time communication. Bud preserves shared meaning across ME, US, and THE ROOM while enforcing privacy and application-owned authority inside the platform the team controls.

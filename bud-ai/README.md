@@ -12,6 +12,13 @@ NormalizedEvent -> Bud Core -> AiDecision -> validator -> tool -> state update
 The local demo now includes faster-whisper STT, NLLB translation, and a
 CPU-local Qwen3-1.7B quantized model for private text replies.
 
+## Contents
+
+- [Quick Start](#quick-start)
+- [Current Capabilities](#current-capabilities)
+- [Not Yet Implemented](#not-yet-implemented)
+- [Documentation](#documentation)
+
 ## Quick Start
 
 Requires Node 18+ for the LiveKit runtime. The contract tests can still run
