@@ -48,7 +48,8 @@ async function createParticipantToken(input, env) {
     room: roomName,
     canPublish: true,
     canPublishData: true,
-    canSubscribe: true
+    canSubscribe: true,
+    canPublishSources: input.role === "facilitator" || input.screen_share_allowed ? ["microphone", "camera", "screen_share"] : ["microphone"]
   });
 
   return {

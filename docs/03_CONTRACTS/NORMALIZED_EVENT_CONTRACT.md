@@ -61,6 +61,9 @@ type NormalizedEventType =
   | "permission_request"
   | "permission_response"
   | "workshop_state_request"
+  | "source_material_uploaded"
+  | "source_pack_activated"
+  | "source_pack_superseded"
   | "tool_result"
   | "system_error";
 ```
@@ -133,6 +136,24 @@ type FacilitatorInstructionPayload = {
   language: LanguageCode;
 };
 ```
+
+### source_pack_activated
+
+Records the facilitator-approved Source Pack version that becomes shared
+grounding context for the workshop.
+
+```ts
+{
+  source_pack_id: string;
+  version: number;
+  material_ids: string[];
+  activation_scope: "workshop_shared";
+}
+```
+
+Source material retrieval may be referenced by `context_event_ids` and
+`EvidenceRef.source_location_refs`; extracted content is not silently mixed
+with private learner context.
 
 ### participant_correction
 

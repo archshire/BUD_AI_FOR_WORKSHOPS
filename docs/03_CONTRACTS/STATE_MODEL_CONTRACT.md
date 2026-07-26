@@ -25,6 +25,34 @@ The application owns authoritative state. Bud AI may propose state updates, but 
 
 ## State Objects
 
+### WorkshopSourcePack
+
+```ts
+type WorkshopSourcePack = {
+  source_pack_id: string;
+  workshop_id: string;
+  version: number;
+  status: "draft" | "active" | "superseded";
+  uploaded_by: string;
+  materials: SourceMaterial[];
+  activated_at?: string;
+};
+
+type SourceMaterial = {
+  material_id: string;
+  filename: string;
+  media_type: "pptx" | "pdf" | "docx" | "google_slides_export";
+  extracted_text_ref: string;
+  source_location_refs: string[];
+  uploaded_at: string;
+};
+```
+
+The facilitator owns Source Pack activation. Bud may retrieve permitted
+material and propose grounding, but cannot activate, replace, or delete
+source material autonomously. Source Pack evidence is shared workshop
+context; private learner-Bud content does not enter it automatically.
+
 ### WorkshopState
 
 ```ts
@@ -211,6 +239,8 @@ type SupportRequest = {
 - Private raw content stays private unless permission allows disclosure.
 - Minimum-necessary operational projections may enter FacilitatorViewState when privacy rules allow it.
 - `help_stuck` support requests must be grounded in facilitator lesson transcript, current activity, or permitted shared context.
+- Source Pack retrieval must be scoped to the active workshop version and preserve page, slide, or section references.
+- Evidence generated from source material must retain the active Source Pack version so later replacement does not rewrite historical grounding.
 - `adaptive_checkin` support requests must be grounded in observable participation patterns over a defined time window. Bud may invite the participant to ask a question, request clarification, keep listening, or contribute, but must not infer disengagement, confusion, motivation, or personality from quietness alone.
 - `comprehension.status` is participant-reported calibration evidence. `unknown` is the required default and remains so when no response is received.
 - Facilitator comprehension rollups use aggregate counts and a response denominator. They exclude raw private follow-up content and do not infer why a participant chose yellow or red.

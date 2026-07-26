@@ -2,6 +2,7 @@ const fs = require("fs");
 const http = require("http");
 const path = require("path");
 const { createBudRuntime } = require("./runtime");
+const { createSourcePackStore } = require("./source-pack");
 const { baseEvent } = require("../../../packages/test-fixtures/src/demo-events");
 
 const WEB_ROOT = path.resolve(__dirname, "../../web/src/app");
@@ -13,7 +14,7 @@ function createServer(options) {
   }, options || {});
   const roomDirectory = {
     rooms: {
-      "bud-demo-room": { room_name: "bud-demo-room", allocations: {} }
+      "bud-demo-room": { room_name: "bud-demo-room", allocations: {}, participant_screen_share_enabled: false }
     }
   };
   const diagnostics = {
@@ -28,6 +29,8 @@ function createServer(options) {
     events: []
   };
   const summaryLastSentAt = {};
+  const mediaState = {};
+  const sourcePackStore = createSourcePackStore();
 
   seedWorkshop(runtime);
 
@@ -66,7 +69,7 @@ function createServer(options) {
           const { ensureRoom } = require("./livekit/livekit-adapter");
           const livekitRoom = await ensureRoom(roomName);
           if (!roomDirectory.rooms[roomName]) {
-            roomDirectory.rooms[roomName] = { room_name: roomName, allocations: {} };
+            roomDirectory.rooms[roomName] = { room_name: roomName, allocations: {}, participant_screen_share_enabled: false };
           }
           sendJson(res, { room: livekitRoom, rooms: listRooms(roomDirectory) });
         } catch (error) {
@@ -113,9 +116,73 @@ function createServer(options) {
             }
           }
           const { createParticipantToken } = require("./livekit/livekit-adapter");
+          body.screen_share_allowed = body.role === "facilitator" || Boolean(managedRoom && managedRoom.participant_screen_share_enabled);
           sendJson(res, await createParticipantToken(body));
         } catch (error) {
           sendJson(res, { error: error.message, code: error.code || "LIVEKIT_TOKEN_ERROR" }, error.code === "LIVEKIT_NOT_CONFIGURED" ? 503 : 400);
+        }
+      });
+    }
+
+    if (req.method === "GET" && req.url.indexOf("/api/livekit/media") === 0) {
+      const roomName = new URL(req.url, "http://localhost").searchParams.get("room") || "bud-demo-room";
+      sendJson(res, { room_name: roomName, participant_screen_share_enabled: Boolean(roomDirectory.rooms[roomName] && roomDirectory.rooms[roomName].participant_screen_share_enabled), active_screen_share: mediaState[roomName] || null });
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/livekit/media/claim") {
+      return readJson(req, res, function (body) {
+        const roomName = cleanRoomName(body.room_name);
+        const participantId = String(body.participant_id || "").trim();
+        const current = mediaState[roomName];
+        if (!roomName || !participantId) return sendJson(res, { error: "room_name and participant_id are required" }, 400);
+        if (current && current.participant_id !== participantId) return sendJson(res, { error: "Another participant is already sharing their screen" }, 409);
+        mediaState[roomName] = { participant_id: participantId, display_name: String(body.display_name || participantId), role: body.role || "learner", updated_at: new Date().toISOString() };
+        sendJson(res, { active_screen_share: mediaState[roomName] });
+      });
+    }
+
+    if (req.method === "POST" && req.url === "/api/livekit/media/release") {
+      return readJson(req, res, function (body) {
+        const roomName = cleanRoomName(body.room_name);
+        if (mediaState[roomName] && (!body.participant_id || mediaState[roomName].participant_id === body.participant_id)) delete mediaState[roomName];
+        sendJson(res, { active_screen_share: mediaState[roomName] || null });
+      });
+    }
+
+    if (req.method === "POST" && req.url === "/api/facilitator/media-permission") {
+      return readJson(req, res, function (body) {
+        const roomName = cleanRoomName(body.room_name);
+        if (!roomDirectory.rooms[roomName]) return sendJson(res, { error: "Create the room before changing media permissions" }, 404);
+        roomDirectory.rooms[roomName].participant_screen_share_enabled = Boolean(body.enabled);
+        sendJson(res, { room_name: roomName, participant_screen_share_enabled: roomDirectory.rooms[roomName].participant_screen_share_enabled });
+      });
+    }
+
+    if (req.method === "GET" && req.url.indexOf("/api/facilitator/source-pack") === 0) {
+      const roomName = new URL(req.url, "http://localhost").searchParams.get("room") || "bud-demo-room";
+      return sendJson(res, sourcePackStore.get(roomName));
+    }
+
+    if (req.method === "POST" && req.url === "/api/facilitator/source-material") {
+      return readJson(req, res, function (body) {
+        try {
+          const result = sourcePackStore.addMaterial(body);
+          sendJson(res, { source_pack: result });
+        } catch (error) {
+          sendJson(res, { error: error.message }, 400);
+        }
+      }, 25 * 1024 * 1024);
+    }
+
+    if (req.method === "POST" && req.url === "/api/facilitator/source-pack/activate") {
+      return readJson(req, res, function (body) {
+        try {
+          const roomName = cleanRoomName(body.room_name);
+          if (!roomName) return sendJson(res, { error: "A valid room name is required" }, 400);
+          sendJson(res, { source_pack: sourcePackStore.activate(roomName, body.version) });
+        } catch (error) {
+          sendJson(res, { error: error.message }, 400);
         }
       });
     }
@@ -287,6 +354,8 @@ function createServer(options) {
 
     if (req.method === "POST" && req.url === "/api/help-stuck") {
       return readJson(req, res, function (body) {
+        const participantId = body.participant_id || config.participant_id;
+        const sourcePackContext = sourcePackStore.context(body.room_name || "bud-demo-room", "current workshop material");
         const result = runtime.handleEvent(baseEvent({
           event_id: "ui-help-stuck-" + Date.now(),
           type: "ai_partner_request",
@@ -301,13 +370,14 @@ function createServer(options) {
             requested_surface: "me",
             request_type: "help_stuck",
             text: "Help, I'm Stuck",
-            target_participant_id: body.participant_id || config.participant_id,
-            context_event_ids: ["ui-facilitator-prompt-001"]
+            target_participant_id: participantId,
+            context_event_ids: ["ui-facilitator-prompt-001"],
+            source_pack_context: sourcePackContext
           }
         }));
         sendJson(res, {
           result: summarizeResult(result),
-          state: learnerState(runtime, body.participant_id || config.participant_id)
+          state: learnerState(runtime, participantId)
         });
       });
     }
@@ -340,7 +410,8 @@ function createServer(options) {
         const escalationRequested = result.decision.decision_type === "CREATE_FACILITATOR_SIGNAL";
         const localReply = escalationRequested ? null : await askLocalBud({
           workshopPrompt: currentPrompt(runtime.getStateSnapshot()),
-          question: String(body.text || "")
+          question: String(body.text || ""),
+          sourceContext: sourcePackStore.context(body.room_name || "bud-demo-room", String(body.text || ""))
         });
         if (escalationRequested) {
           runtime.recordPrivateMessage({
@@ -395,7 +466,8 @@ function createServer(options) {
           question: "Give the learner a brief private progress summary for a periodic check-in. " +
             "Use only the current workshop prompt and recent shared context. Mention the current focus, " +
             "one concrete next step, and invite green, yellow, or red self-reporting. Keep it to two short sentences.\n\n" +
-            contextNote
+            contextNote,
+          sourceContext: sourcePackStore.context(body.room_name || "bud-demo-room", currentPrompt(snapshot))
         });
         const fallbackText = "Quick check-in: the workshop is currently focused on " +
           (currentPrompt(snapshot) || "the current activity") +
@@ -444,7 +516,8 @@ function createServer(options) {
         });
         const localReply = await askLocalBud({
           workshopPrompt: currentPrompt(runtime.getStateSnapshot()),
-          question: text + "\nAnswer for the facilitator using room-level evidence and do not reveal private learner content."
+          question: text + "\nAnswer for the facilitator using room-level evidence and do not reveal private learner content.",
+          sourceContext: sourcePackStore.context(body.room_name || "bud-demo-room", text)
         });
         if (localReply) {
           runtime.recordPrivateMessage({
@@ -764,11 +837,11 @@ function summarizeResult(result) {
   };
 }
 
-function readJson(req, res, callback) {
+function readJson(req, res, callback, maxBytes) {
   let body = "";
   req.on("data", function (chunk) {
     body += chunk;
-    if (body.length > 100000) {
+    if (body.length > (maxBytes || 100000)) {
       req.destroy();
     }
   });
@@ -861,9 +934,12 @@ function translateText(text, sourceLanguage, targetLanguage, callback) {
 }
 
 function askLocalBud(input) {
+  const sourceText = input.sourceContext && input.sourceContext.text
+    ? "\n\nActive Workshop Source Pack (version " + input.sourceContext.version + "):\n" + input.sourceContext.text
+    : "\n\nActive Workshop Source Pack: none is currently active.";
   const body = Buffer.from(JSON.stringify({
-    system: "You are Bud, a friendly and concise private workshop learning companion. Use only the supplied workshop prompt and the learner question. Do not invent workshop facts. If the prompt is insufficient, say so and ask one clarifying question. Answer in no more than three short sentences.",
-    user: "Current workshop prompt:\n" + (input.workshopPrompt || "No prompt available") + "\n\nLearner question:\n" + input.question,
+    system: "You are Bud, a friendly and concise workshop learning companion. Use only the supplied workshop prompt, active Workshop Source Pack, and permitted question. Do not invent workshop facts. If the supplied material is insufficient, say so and ask one clarifying question. When using source material, mention its filename and slide/page/section when practical. Answer in no more than three short sentences.",
+    user: "Current workshop prompt:\n" + (input.workshopPrompt || "No prompt available") + sourceText + "\n\nLearner question:\n" + input.question,
     max_tokens: 180
   }));
   return new Promise(function (resolve) {

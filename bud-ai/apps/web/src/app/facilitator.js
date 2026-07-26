@@ -8,6 +8,12 @@ const elements = {
   microphoneButton: document.getElementById("facilitator-microphone-button"),
   microphoneStatus: document.getElementById("facilitator-mic-status"),
   microphoneMeter: document.getElementById("facilitator-mic-meter"),
+  mediaStatus: document.getElementById("facilitator-media-status"),
+  mainMedia: document.getElementById("facilitator-main-media"),
+  mediaStrip: document.getElementById("facilitator-media-strip"),
+  cameraButton: document.getElementById("facilitator-camera-button"),
+  screenButton: document.getElementById("facilitator-screen-button"),
+  participantPermissionButton: document.getElementById("participant-permission-button"),
   scanButton: document.getElementById("scan-button"),
   roomFeed: document.getElementById("room-feed"),
   participantCount: document.getElementById("participant-count"),
@@ -23,7 +29,11 @@ const elements = {
   allocationParticipant: document.getElementById("allocation-participant"),
   allocationName: document.getElementById("allocation-name"),
   allocationRoom: document.getElementById("allocation-room"),
-  roomList: document.getElementById("room-list")
+  roomList: document.getElementById("room-list"),
+  sourcePackForm: document.getElementById("source-pack-form"),
+  sourcePackFile: document.getElementById("source-pack-file"),
+  sourcePackStatus: document.getElementById("source-pack-status"),
+  sourcePackList: document.getElementById("source-pack-list")
   ,facilBudAvatar: document.getElementById("facil-bud-avatar")
 };
 
@@ -38,15 +48,21 @@ let facilitatorMicAnalyserFrame = null;
 function boot() {
   elements.connectButton.addEventListener("click", connectWorkshop);
   elements.microphoneButton.addEventListener("click", startFacilitatorMicrophone);
+  elements.cameraButton.addEventListener("click", toggleFacilitatorCamera);
+  elements.screenButton.addEventListener("click", toggleFacilitatorScreen);
+  elements.participantPermissionButton.addEventListener("click", toggleParticipantPermission);
   elements.scanButton.addEventListener("click", scanRoom);
   elements.facilBudForm.addEventListener("submit", sendToFacilBud);
   elements.facilBudForm.addEventListener("keydown", submitOnEnter);
   elements.createRoomForm.addEventListener("submit", createRoom);
   elements.allocateForm.addEventListener("submit", allocateParticipant);
+  elements.sourcePackForm.addEventListener("submit", uploadSourceMaterial);
   refreshState();
   refreshRooms();
+  refreshSourcePack();
   window.setInterval(refreshState, 3000);
   window.setInterval(refreshRooms, 5000);
+  window.setInterval(refreshSourcePack, 5000);
 }
 
 function submitOnEnter(event) {
@@ -103,6 +119,101 @@ function refreshRooms() {
     .then(function (response) { return response.json(); })
     .then(function (payload) { renderRooms(payload.rooms || []); })
     .catch(function () { elements.roomList.textContent = "Room management unavailable"; });
+}
+
+function refreshSourcePack() {
+  const roomName = elements.roomInput.value.trim() || "bud-demo-room";
+  fetch("/api/facilitator/source-pack?room=" + encodeURIComponent(roomName))
+    .then(function (response) { return response.json(); })
+    .then(renderSourcePack)
+    .catch(function () { elements.sourcePackStatus.textContent = "Source Pack unavailable"; });
+}
+
+function uploadSourceMaterial(event) {
+  event.preventDefault();
+  const file = elements.sourcePackFile.files[0];
+  if (!file) {
+    elements.sourcePackStatus.textContent = "Choose a .pptx, .pdf, or .docx file first.";
+    return;
+  }
+  if (file.size > 15 * 1024 * 1024) {
+    elements.sourcePackStatus.textContent = "Source files must be 15 MB or smaller.";
+    return;
+  }
+  elements.sourcePackStatus.textContent = "Reading " + file.name + "...";
+  const reader = new FileReader();
+  reader.onload = function () {
+    const contentBase64 = String(reader.result).split(",")[1] || "";
+    fetch("/api/facilitator/source-material", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        room_name: elements.roomInput.value.trim() || "bud-demo-room",
+        filename: file.name,
+        mime_type: file.type,
+        content_base64: contentBase64,
+        uploaded_by: "facilitator-1"
+      })
+    })
+      .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
+      .then(function (result) {
+        if (!result.ok) throw new Error(result.body.error || "Unable to upload source");
+        elements.sourcePackFile.value = "";
+        elements.sourcePackStatus.textContent = "Uploaded. Activate the new version when ready.";
+        renderSourcePack(result.body.source_pack);
+      })
+      .catch(function (error) { elements.sourcePackStatus.textContent = error.message; });
+  };
+  reader.onerror = function () { elements.sourcePackStatus.textContent = "Unable to read this file."; };
+  reader.readAsDataURL(file);
+}
+
+function activateSourcePack(version) {
+  fetch("/api/facilitator/source-pack/activate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ room_name: elements.roomInput.value.trim() || "bud-demo-room", version: version })
+  })
+    .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
+    .then(function (result) {
+      if (!result.ok) throw new Error(result.body.error || "Unable to activate Source Pack");
+      renderSourcePack(result.body.source_pack);
+      elements.sourcePackStatus.textContent = "Source Pack version " + version + " is active for Bud.";
+    })
+    .catch(function (error) { elements.sourcePackStatus.textContent = error.message; });
+}
+
+function renderSourcePack(sourcePack) {
+  const versions = sourcePack.versions || [];
+  elements.sourcePackList.innerHTML = "";
+  if (!versions.length) {
+    elements.sourcePackStatus.textContent = "No source pack uploaded yet.";
+    return;
+  }
+  elements.sourcePackStatus.textContent = sourcePack.active_version
+    ? "Active Source Pack version: " + sourcePack.active_version
+    : "Draft Source Pack ready for activation.";
+  versions.slice().reverse().forEach(function (version) {
+    const item = document.createElement("article");
+    item.className = "source-pack-item" + (version.status === "active" ? " active" : "");
+    const title = document.createElement("strong");
+    title.textContent = "Version " + version.version + (version.status === "active" ? " (active)" : " (" + version.status + ")");
+    item.appendChild(title);
+    const details = document.createElement("span");
+    details.textContent = version.materials.map(function (material) {
+      return material.filename + " - " + material.chunk_count + " extracted section(s)";
+    }).join("; ");
+    item.appendChild(details);
+    if (version.status !== "active") {
+      const button = document.createElement("button");
+      button.className = "secondary-action";
+      button.type = "button";
+      button.textContent = "Activate version";
+      button.addEventListener("click", function () { activateSourcePack(version.version); });
+      item.appendChild(button);
+    }
+    elements.sourcePackList.appendChild(item);
+  });
 }
 
 function renderRooms(rooms) {
@@ -165,6 +276,8 @@ function connectWorkshop() {
     .then(function (result) {
       if (!result.ok) throw new Error(result.body.error || "Unable to get facilitator token");
       livekitRoom = new window.LivekitClient.Room({ adaptiveStream: true, dynacast: true });
+      livekitRoom.on(window.LivekitClient.RoomEvent.TrackSubscribed, function (track, publication, participant) { renderRemoteMedia(track, publication, participant); });
+      livekitRoom.on(window.LivekitClient.RoomEvent.TrackUnsubscribed, function (track, publication) { removeMediaTrack(track, publication); });
       livekitRoom.on(window.LivekitClient.RoomEvent.ParticipantConnected, function (participant) {
         if (participant.identity.indexOf("facilitator") !== 0) {
           connectedLearners[participant.identity] = { name: participant.name || participant.identity, identity: participant.identity };
@@ -189,6 +302,10 @@ function connectWorkshop() {
       setConnectionStatus("Connected");
       elements.connectButton.textContent = "Connected";
       elements.microphoneButton.disabled = false;
+      elements.cameraButton.disabled = false;
+      elements.screenButton.disabled = false;
+      elements.participantPermissionButton.disabled = false;
+      refreshMediaState();
       reportTopviewPresence(true, false);
       renderConnectedLearners();
     })
@@ -197,6 +314,75 @@ function connectWorkshop() {
       elements.connectButton.disabled = false;
     });
 }
+
+function mediaRequest(endpoint, body) {
+  return fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(function (response) { return response.json().then(function (payload) { return { ok: response.ok, payload: payload }; }); });
+}
+
+function refreshMediaState() {
+  fetch("/api/livekit/media?room=" + encodeURIComponent(elements.roomInput.value.trim())).then(function (response) { return response.json(); }).then(function (state) {
+    elements.participantPermissionButton.textContent = state.participant_screen_share_enabled ? "Disable participant screen sharing" : "Allow participant screen sharing";
+    elements.screenButton.textContent = state.active_screen_share && state.active_screen_share.participant_id === "facilitator-1" ? "Stop sharing" : "Share screen + audio";
+    elements.mediaStatus.textContent = state.active_screen_share ? "Screen shared by " + state.active_screen_share.display_name : "No shared screen";
+  }).catch(function () {});
+}
+
+function renderRemoteMedia(track, publication, participant) {
+  const element = track.attach();
+  element.dataset.participantId = participant.identity;
+  element.dataset.source = publication.source;
+  if (publication.source === window.LivekitClient.Track.Source.ScreenShareAudio) {
+    elements.mainMedia.appendChild(element);
+    elements.mediaStatus.textContent = "Screen audio shared by " + (participant.name || participant.identity);
+    return;
+  }
+  if (publication.source === window.LivekitClient.Track.Source.ScreenShare) {
+    elements.mainMedia.innerHTML = "";
+    elements.mainMedia.appendChild(element);
+    elements.mediaStatus.textContent = "Screen shared by " + (participant.name || participant.identity);
+  } else if (publication.source === window.LivekitClient.Track.Source.Camera) {
+    elements.mediaStrip.appendChild(element);
+  }
+}
+
+function removeMediaTrack(track, publication) {
+  track.detach().forEach(function (element) { element.remove(); });
+  if (publication.source === window.LivekitClient.Track.Source.ScreenShare) {
+    elements.mainMedia.innerHTML = "<p class=\"empty\">The main workshop screen will appear here.</p>";
+    refreshMediaState();
+  }
+}
+
+function toggleFacilitatorCamera() {
+  if (!livekitRoom) return;
+  const enabled = livekitRoom.localParticipant.isCameraEnabled;
+  livekitRoom.localParticipant.setCameraEnabled(!enabled).then(function () {
+    elements.cameraButton.textContent = enabled ? "Start camera" : "Stop camera";
+    if (!enabled) {
+      const publication = livekitRoom.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.Camera);
+      if (publication && publication.track) elements.mediaStrip.appendChild(publication.track.attach());
+    }
+  }).catch(function (error) { setConnectionStatus("Camera unavailable: " + error.message); });
+}
+
+function toggleFacilitatorScreen() {
+  if (!livekitRoom) return;
+  const sharing = Boolean(livekitRoom.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.ScreenShare));
+  const body = { room_name: elements.roomInput.value.trim(), participant_id: "facilitator-1", display_name: "Teacher", role: "facilitator" };
+  mediaRequest(sharing ? "/api/livekit/media/release" : "/api/livekit/media/claim", body).then(function (result) {
+    if (!result.ok) throw new Error(result.payload.error || "Screen sharing is unavailable");
+    return livekitRoom.localParticipant.setScreenShareEnabled(!sharing, { audio: true });
+  }).then(function () { elements.screenButton.textContent = sharing ? "Share screen + audio" : "Stop sharing"; refreshMediaState(); }).catch(function (error) { elements.mediaStatus.textContent = error.message; });
+}
+
+function toggleParticipantPermission() {
+  const enabled = elements.participantPermissionButton.textContent.indexOf("Disable") === -1;
+  mediaRequest("/api/facilitator/media-permission", { room_name: elements.roomInput.value.trim(), enabled: enabled }).then(function (result) {
+    if (!result.ok) throw new Error(result.payload.error || "Unable to change media permission");
+    elements.participantPermissionButton.textContent = enabled ? "Disable participant screen sharing" : "Allow participant screen sharing";
+  }).catch(function (error) { setConnectionStatus(error.message); });
+}
+
 
 function startFacilitatorMicrophone() {
   if (!livekitRoom) return;
@@ -325,7 +511,7 @@ function sendToFacilBud(event) {
   fetch("/api/facilitator-message", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text: text })
+    body: JSON.stringify({ room_name: elements.roomInput.value.trim(), text: text })
   })
     .then(function (response) { return response.json(); })
     .then(renderState)

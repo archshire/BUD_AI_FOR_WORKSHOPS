@@ -64,6 +64,8 @@ type AiDecisionType =
 - `ASK_CLARIFY` is preferred when confidence is low and consequence is non-trivial.
 - `HELP` should remain at ME when the issue can appropriately stay private.
 - `HELP` may power a private "Help, I'm Stuck" flow when grounded in facilitator transcript, current activity, or permitted shared context.
+- Active Workshop Source Pack material is permitted shared context. Decisions grounded in it must retain the Source Pack version and page, slide, or section references.
+- If the active Source Pack does not support an answer, Bud must ask for clarification or use `WAIT`/`NO_ACTION`; it must not invent workshop-specific content.
 - `HELP` may also power adaptive private check-ins for quieter participants when based on observable low interaction over time. The decision must be framed as an optional invitation, not a diagnosis of confusion, motivation, or disengagement.
 - When multiple candidate actions are available, privacy/permission and explicit user requests take priority, followed by private learner support, US meaning repair, THE ROOM signals, and optional Adaptive Check-in. Conflicting duplicate actions should be suppressed; `WAIT` is valid when candidates are equally important.
 - Green, yellow, and red comprehension responses are participant-reported evidence. Yellow may prompt a private clarification question; red may offer bounded private help and a learner-controlled facilitator-escalation option. No response remains unknown.

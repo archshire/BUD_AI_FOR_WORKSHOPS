@@ -455,6 +455,34 @@ participant misunderstandings, state conclusions, or AI recommendations.
 
 ------------------------------------------------------------------------
 
+## FR-SETUP-004 --- Workshop Source Pack
+
+**Requirement:** Before activating a workshop, the facilitator may upload
+approved source materials to a workshop-scoped Source Pack. The prototype
+must support `.pptx`, `.pdf`, and `.docx` files. Google Slides is supported
+through an explicit facilitator export/import path rather than requiring
+Google authorization in the prototype.
+
+The application extracts and indexes permitted text with page, slide, or
+section references. The facilitator controls which uploaded version is
+active. Bud uses the active Source Pack as shared grounding context for
+learner support, facilitator support, translation terminology, and room
+reports. Learner-private Bud conversations are never added to the Source
+Pack automatically.
+
+Source Pack material is workshop-scoped, versioned, auditable, and separate
+from the append-only interaction log. Bud should identify the relevant
+source section when practical and must say when the source material does not
+contain enough information to answer.
+
+**Acceptance:** A facilitator can upload or import a supported source file,
+activate it for the workshop, and demonstrate that a learner's Bud answers
+are grounded in the shared material with an inspectable slide/page/section
+reference. Replacing the active material creates a new version; prior
+evidence remains linked to the version that was active when it was created.
+
+------------------------------------------------------------------------
+
 # 10. Real-Time Communication Requirements
 
 ## FR-RTC-001 --- Multi-user session
@@ -484,6 +512,24 @@ interaction.
 
 **Acceptance:** Text input enters the same normalized reasoning
 architecture without requiring a fake voice path.
+
+## FR-RTC-005 --- Optional facilitator live feed
+
+The facilitator may optionally publish a camera feed through the native LiveKit room. Authorized learners may subscribe to the feed and see the facilitator as live workshop presence. Camera use is opt-in and is not required for the workshop or Bud's AI pipeline.
+
+**Acceptance:** The facilitator can start and stop the camera; learners see the feed when enabled and a clear neutral state when it is disabled.
+
+## FR-RTC-006 --- Single main screen-share space
+
+The workshop provides one main media space for presentation. The facilitator may start and stop screen sharing. Participant screen sharing is available only when the facilitator enables the room permission. At most one screen share may be active at a time. A second request is rejected visibly; the existing share is never silently replaced or queued. The facilitator may stop an active participant share.
+
+**Acceptance:** Authorized clients see one active share in the main media space; stopping it returns the space to a neutral workshop state.
+
+## FR-RTC-007 --- Media and AI boundary
+
+Camera and screen-share tracks are communication/presentation media only in the `live-vid` build. Bud does not inspect, transcribe, summarize, or reason over video or screen frames. Screen-share audio is optional, requires explicit browser permission and tab-audio selection, and remains separate from Bud's microphone transcription path. Camera and screen media are not recorded or written to the session log.
+
+**Acceptance:** Enabling media does not add a video-processing request to Bud, write media frames to the event log, or silently enable recording.
 
 ------------------------------------------------------------------------
 
@@ -1831,10 +1877,7 @@ Bud shows active/paused state and cannot activate autonomously. A
 reconnect preserves the prior choice but remains paused until the learner
 confirms continuation. Leaving the workshop ends the active Bud session.
 
-The MVP input scope is voice and text only. Participant video is not part
-of the MVP interface or Bud's AI input path. This is an intentional scope
-and latency decision, not a claim that future workshop builds could never
-support video.
+The MVP AI input scope remains voice and text only. The `live-vid` branch adds optional facilitator camera presence and LiveKit screen sharing as communication media, but these tracks are not part of Bud's AI input path. Participant camera video remains out of scope unless separately approved.
 
 Bud must prioritize context-current responses. A slow or stale sensemaking
 result must not be delivered after the workshop has moved on as though it

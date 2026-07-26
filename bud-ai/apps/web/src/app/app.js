@@ -24,6 +24,10 @@ const elements = {
   micStatusText: document.getElementById("mic-status-text"),
   micMeter: document.getElementById("mic-meter"),
   captionList: document.getElementById("caption-list"),
+  mediaStatus: document.getElementById("media-status"),
+  mainMedia: document.getElementById("main-media"),
+  mediaStrip: document.getElementById("media-strip"),
+  participantScreenButton: document.getElementById("participant-screen-button"),
   clearCaptions: document.getElementById("clear-captions"),
   roomFeed: document.getElementById("room-feed"),
   presenceList: document.getElementById("presence-list"),
@@ -60,6 +64,7 @@ function boot() {
   elements.nameInput.addEventListener("input", updateBudName);
   elements.form.addEventListener("keydown", submitOnEnter);
   elements.microphoneButton.addEventListener("click", publishMicrophone);
+  elements.participantScreenButton.addEventListener("click", toggleParticipantScreen);
   elements.clearCaptions.addEventListener("click", clearCaptions);
   elements.helpButton.addEventListener("click", function () {
     postJson("/api/help-stuck", { participant_id: PARTICIPANT_ID });
@@ -92,6 +97,7 @@ function boot() {
     elements.input.value = "";
     postJson("/api/private-message", {
       participant_id: PARTICIPANT_ID,
+      room_name: elements.roomInput.value.trim(),
       text: text
     });
   });
@@ -179,6 +185,8 @@ function connectWorkshop() {
     .then(function (result) {
       if (!result.ok) throw new Error(result.body.error || "Unable to get LiveKit token");
       livekitRoom = new window.LivekitClient.Room({ adaptiveStream: true, dynacast: true });
+      livekitRoom.on(window.LivekitClient.RoomEvent.TrackSubscribed, function (track, publication, participant) { renderRemoteMedia(track, publication, participant); });
+      livekitRoom.on(window.LivekitClient.RoomEvent.TrackUnsubscribed, function (track, publication) { removeMediaTrack(track, publication); });
       livekitRoom.on(window.LivekitClient.RoomEvent.ParticipantConnected, function (participant) {
         roomParticipants[participant.identity] = participant.name || participant.identity;
         appendRoomMessage(participant.name + " joined the workshop.");
@@ -206,6 +214,8 @@ function connectWorkshop() {
       setConnectionStatus("Connected");
       elements.connectButton.textContent = "Connected";
       elements.microphoneButton.disabled = false;
+      elements.participantScreenButton.disabled = false;
+      refreshMediaState();
       reportTopviewPresence(true, false);
       Object.keys(livekitRoom.remoteParticipants).forEach(function (identity) {
         const participant = livekitRoom.remoteParticipants[identity];
@@ -220,12 +230,58 @@ function connectWorkshop() {
     });
 }
 
+function refreshMediaState() {
+  fetch("/api/livekit/media?room=" + encodeURIComponent(elements.roomInput.value.trim())).then(function (response) { return response.json(); }).then(function (state) {
+    elements.participantScreenButton.disabled = !state.participant_screen_share_enabled;
+    elements.participantScreenButton.textContent = state.active_screen_share && state.active_screen_share.participant_id === PARTICIPANT_ID ? "Stop sharing" : "Share screen + audio";
+    elements.mediaStatus.textContent = state.active_screen_share ? "Screen shared by " + state.active_screen_share.display_name : "No shared screen";
+  }).catch(function () {});
+}
+
+function renderRemoteMedia(track, publication, participant) {
+  const element = track.attach();
+  element.dataset.participantId = participant.identity;
+  element.dataset.source = publication.source;
+  if (publication.source === window.LivekitClient.Track.Source.ScreenShareAudio) {
+    elements.mainMedia.appendChild(element);
+    elements.mediaStatus.textContent = "Screen audio shared by " + (participant.name || participant.identity);
+    return;
+  }
+  if (publication.source === window.LivekitClient.Track.Source.ScreenShare) {
+    elements.mainMedia.innerHTML = "";
+    elements.mainMedia.appendChild(element);
+    elements.mediaStatus.textContent = "Screen shared by " + (participant.name || participant.identity);
+  } else if (publication.source === window.LivekitClient.Track.Source.Camera) {
+    elements.mediaStrip.appendChild(element);
+  }
+}
+
+function removeMediaTrack(track, publication) {
+  track.detach().forEach(function (element) { element.remove(); });
+  if (publication.source === window.LivekitClient.Track.Source.ScreenShare) {
+    elements.mainMedia.innerHTML = "<p class=\"empty\">The main workshop screen will appear here.</p>";
+    refreshMediaState();
+  }
+}
+
+function toggleParticipantScreen() {
+  if (!livekitRoom) return;
+  const sharing = Boolean(livekitRoom.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.ScreenShare));
+  const endpoint = sharing ? "/api/livekit/media/release" : "/api/livekit/media/claim";
+  const body = { room_name: elements.roomInput.value.trim(), participant_id: PARTICIPANT_ID, display_name: elements.nameInput.value.trim(), role: "learner" };
+  fetch(endpoint, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }).then(function (response) { return response.json().then(function (payload) { return { ok: response.ok, payload: payload }; }); }).then(function (result) {
+    if (!result.ok) throw new Error(result.payload.error || "Screen sharing is unavailable");
+    return livekitRoom.localParticipant.setScreenShareEnabled(!sharing, { audio: true });
+  }).then(function () { elements.participantScreenButton.textContent = sharing ? "Share screen + audio" : "Stop sharing"; refreshMediaState(); }).catch(function (error) { elements.mediaStatus.textContent = error.message; });
+}
+
+
 function requestPeriodicSummary() {
   if (!livekitRoom) return;
   fetch("/api/participant-summary", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ participant_id: PARTICIPANT_ID })
+    body: JSON.stringify({ participant_id: PARTICIPANT_ID, room_name: elements.roomInput.value.trim() })
   })
     .then(function (response) { return response.json(); })
     .then(function (payload) {

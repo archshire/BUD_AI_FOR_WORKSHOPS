@@ -1,4 +1,18 @@
 function resolveHelpStuckContext(state, event) {
+  const sourcePackContext = event.payload && event.payload.source_pack_context;
+  if (sourcePackContext && sourcePackContext.text) {
+    return {
+      status: "resolved_source_pack",
+      items: [{
+        event_id: event.event_id,
+        status: "current",
+        scope: "public_shared",
+        text: sourcePackContext.text
+      }],
+      refs: [{ event_id: event.event_id }],
+      missing_refs: []
+    };
+  }
   const contextIds = event.payload.context_event_ids || [];
   const requestedRefs = contextIds.map((eventId) => ({ event_id: eventId }));
   const contextItems = contextIds

@@ -1,6 +1,5 @@
 node_modules
 npm-debug.log
-tests
 scripts/run-demo.js
 apps/*/__pycache__
 **/__pycache__

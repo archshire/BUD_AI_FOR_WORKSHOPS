@@ -20,6 +20,7 @@ env/
 logs/
 runtime-data/
 session-data/
+data/source-packs/
 
 # Downloaded model weights and local caches
 models/
@@ -34,4 +35,3 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
-

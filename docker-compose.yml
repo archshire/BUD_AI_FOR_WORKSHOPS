@@ -64,10 +64,14 @@ services:
       TRANSLATION_PORT: 8788
       LLM_HOST: qwen
       LLM_PORT: 8790
+      SOURCE_PACK_ROOT: /app/data/source-packs
     ports:
       - "${BUD_PORT:-3002}:3002"
+    volumes:
+      - source-packs:/app/data/source-packs
 
 volumes:
   whisper-models:
   nllb-models:
   qwen-models:
+  source-packs:

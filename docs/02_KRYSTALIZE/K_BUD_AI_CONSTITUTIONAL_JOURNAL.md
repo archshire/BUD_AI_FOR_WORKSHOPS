@@ -2049,6 +2049,62 @@ implementation behavior. It does not grant Bud autonomous authority, turn
 periodic summaries into diagnoses, or permit raw private learner content in
 facilitator reports. No new clarification frontier is opened.
 
+### Session CJ-063
+
+```yaml
+session_id: CJ-063
+date: 2026-07-26
+trigger: Human approved clarification of optional live video and screen sharing for the live-vid branch.
+scope: One main media space, one active screen share, facilitator camera presence, participant sharing permission, and media privacy boundary.
+authority: human clarification
+```
+
+#### Locked Outcome
+
+The live-vid branch adds optional realtime media without changing Bud's AI input boundary. The facilitator may publish an optional camera feed. The facilitator may screen-share by default; participant screen sharing is permission-controlled. One active screen share occupies the main media space. A second request is visibly rejected rather than silently replacing or queueing the current share, and the facilitator may stop an active participant share.
+
+Bud does not inspect video or screen frames, screen-share media is not recorded or logged, and screen-share audio is optional and requires browser tab-audio selection. Participant camera video remains out of scope. Reconnection restores permissions but never silently restarts media capture.
+
+#### Clarification Rationale
+
+These rules preserve workshop usability and privacy while allowing the demo to show a richer collaborative surface. Separating presentation media from Bud's text and microphone-transcript reasoning avoids introducing AI vision latency or accidental media retention.
+
+### Session CJ-064
+
+```yaml
+session_id: CJ-064
+date: 2026-07-26
+trigger: Human approved adding facilitator source materials as shared grounding for every Bud.
+scope: Workshop Source Pack formats, authority, storage boundary, retrieval, privacy, versioning, and unsupported-answer behavior.
+authority: human clarification
+```
+
+#### Locked Outcome
+
+The facilitator may upload approved `.pptx`, `.pdf`, and `.docx` materials
+before activating the workshop. Google Slides is supported in the prototype
+through an explicit exported PDF/PPTX import, avoiding direct Google
+authorization. The application stores the materials in a workshop-scoped,
+versioned Workshop Source Pack, extracts/indexes permitted text, and preserves
+slide/page/section references. The facilitator activates the version Bud may
+use as shared grounding.
+
+Every Bud may use the active Source Pack for grounded learner support,
+Facil-Bud support, translation terminology, and room synthesis. Private
+learner-Bud conversations never enter the Source Pack automatically. Source
+references remain attached to evidence, and replacing the active pack creates
+a new version without rewriting historical evidence. When the materials do
+not support an answer, Bud asks for clarification or uses `WAIT`/`NO_ACTION`
+instead of inventing workshop-specific content.
+
+#### Clarification Rationale
+
+This closes an important grounding gap in the partner thesis. Bud can travel
+with each learner while following the facilitator because every Bud has access
+to the same approved workshop reference point. The separate Source Pack
+boundary also prevents private learner context from silently becoming shared
+teaching material and gives future retrieval/storage work a stable contract.
+
 ## Clarification Rationale Tracking
 
 Use this section to preserve cognitive traversal lineage.
@@ -2063,6 +2119,7 @@ Use this section to preserve cognitive traversal lineage.
 | CRT-006 | CJ-006 | Teammate recommendation -> ME invitation classification -> contract/docs/scaffold update | Tier 3 | Feature strengthens inclusion but depends on live participation observation generation. | LiveKit/frontend observation windows, cooldown tuning, UI dismissal. | Human approved adding adaptive check-in. |
 | CRT-007 | CJ-007 | Open dependency -> context resolver -> guarded Help, I'm Stuck explanation | Tier 3 | Grounded explanation was the highest-risk unimplemented promise in the scaffold. | Live transcript ingestion, LLM simplification, UI evidence display. | Human approved implementing context retrieval. |
 | CRT-008 | CJ-008 | Open dependency -> observer scaffold -> generated low-activity observation events | Tier 3 | Adaptive check-in needed application-side evidence generation before UI/LiveKit claims. | LiveKit/frontend scheduler, reaction/audio/activity adapters, UI dismissal. | Human approved implementing observation generation. |
+| CRT-017 | CJ-064 | Facilitator materials -> shared grounding -> versioned Source Pack -> evidence references | Tier 2 | Bud's usefulness and partner continuity depend on every Bud seeing the same approved workshop content. | File ingestion, retrieval, source citations, privacy, lifecycle, persistence. | New implementation requirement exposed a missing source-of-truth boundary. |
 | CRT-009 | CJ-009 | Core ME behaviors -> learner UI/API scaffold -> end-to-end private support loop | Tier 3 | Help and adaptive support needed a usable learner surface before LiveKit integration. | LiveKit identity, scheduler, frontend polish, multi-learner sessions. | Human instructed continuation. |
 | CRT-010 | CJ-010 | Prototype teacher-hosted topology -> future cloud option -> deployment dependency register | Tier 2 | The human introduced a future hosting direction that must not overwrite the current prototype topology. | Authentication, identity, room lifecycle, persistence, reachability, tenant isolation, operations. | Human requested a future-build note. |
 | CRT-011 | CJ-011 | PRD boundary check -> clarification gate register -> learner lifecycle frontier | Tier 2 | Further multi-client implementation would otherwise turn unspecified lifecycle and privacy assumptions into architecture. | Workshop lifecycle, identity, activation, privacy, room behavior, deployment, and provider decisions. | Human requested explicit KRYSTALIZE documentation before continuing. |
@@ -2070,6 +2127,7 @@ Use this section to preserve cognitive traversal lineage.
 | CRT-013 | CJ-013 | Clarification-order insight -> dependency ranking rule -> cross-document rewrite prevention | Tier 2 | The human identified that resolving lower-order questions first can force rework across later documentation segments. | All future KRYSTALIZE branches and their downstream contracts. | Human requested this process lesson be preserved. |
 | CRT-014 | CJ-014 | Full-doc review -> missing gate discovery -> 24-item dependency order | Tier 2 | The human requested a fresh review to ensure no clarification area was overlooked and to rank the order before proceeding. | WorkshopModel, lifecycle, identity, privacy, evidence, state, platform, provider, cloud, and acceptance decisions. | Additional gates were found in source specs/contracts and formally added to the frontier. |
 | CRT-015 | CJ-015 | PRD baseline -> clarification rationale -> stabilized target structure | Tier 2 | The human requested visible separation so team members and judges can understand why the original PRD, KRYSTALIZE, and final approved PRD are distinct stages. | PRD authority, clarification register, implementation readiness, and human approval. | Append-only PRD evolution record added without rewriting the original baseline. |
+| CRT-016 | CJ-063 | Optional live video and screen-sharing -> single main media space -> permission and privacy boundary | Tier 2 | Media permissions and AI/media separation affect room authority, UI layout, privacy, and latency claims. | LiveKit media controls, facilitator authority, retention, and demo acceptance. | Any request to process video, record media, allow multiple shares, or make participant cameras mandatory. |
 
 ## Warning Events
 
@@ -2128,6 +2186,7 @@ Record why a clarification became locked, deferred, accepted as uncertainty, or 
 | RR-017 | PRD evolution record | clarified | The PRD now preserves its original baseline, explains the 24 clarification areas and first-pass limitation, and defines a future human-approved stabilized form. | human clarification / KRYSTALIZE session CJ-015 | PRD Evolution Record, CG-001 through CG-024 |
 | RR-018 | AI Partner design thesis | clarified | The human explicitly distinguished bounded AI partner agency from passive tool behavior and named the human friction Bud is intended to reduce. | human clarification / KRYSTALIZE session CJ-062 | LT-052, DEP-022 |
 | RR-019 | Proactive learner and facilitator behavior | clarified | Periodic learner summaries and automatic aggregate room reports were accepted as expressions of the partner thesis and documented with privacy and evidence limits. | human clarification / implementation refinement / CJ-062 | LT-053, LT-054, DEP-023 |
+| RR-020 | Live-vid media policy | clarified | The human approved one main media space, one active screen share, optional facilitator camera presence, permission-controlled participant sharing, and no AI vision or media recording in this build. | human clarification / KRYSTALIZE session CJ-063 | LT-020, LT-055 through LT-064 |
 
 ## Deferred Issues
 
@@ -2170,6 +2229,8 @@ Use for significant changes in project intent, philosophy, jurisdiction, accepte
 | ID | Date | Shift | Previous State | New State | Rationale | Trace Links |
 | --- | --- | --- | --- | --- | --- | --- |
 | MCS-001 | 2026-07-25 | Product AI naming clarified. | Project referred to as AI Partner in source docs. | Current generated constitutional artifacts refer to Bud AI / Bud. | Human explicitly named the AI. | TR-001 |
+| MCS-002 | 2026-07-26 | Live-vid media boundary clarified. | Video was excluded from the MVP interface and media behavior was unspecified. | Optional LiveKit camera and screen media are added for communication, with one main share and no AI media processing. | This adds demo value while preserving voice/text AI latency, privacy, and bounded authority. | CJ-063, LT-020, LT-055 through LT-064 |
+| MCS-003 | 2026-07-26 | Workshop Source Pack grounding clarified. | Bud's shared grounding was described mainly as prompts, transcripts, and normalized workshop events; facilitator materials had no defined lifecycle or evidence boundary. | The facilitator may upload approved PPTX, PDF, or DOCX material, or import an explicitly exported Google Slides file. One versioned, workshop-scoped Source Pack becomes shared grounding after facilitator activation. Bud preserves source locations and never absorbs private learner-Bud content automatically. | This gives every Bud a common facilitator-led reference point, enriches grounded support, and prevents answers from drifting away from the workshop's actual materials. | CJ-064, LT-065 through LT-070 |
 
 ## Traceability Index
 
@@ -2221,3 +2282,4 @@ Use this section to preserve machine/human-readable traceability.
 | TR-042 | CJ-014 | CG-016 through CG-024 | `docs/02_KRYSTALIZE/K_BUD_AI_CONSTITUTIONAL_STATE.md` | Full-doc review identified nine additional gates and recorded the authoritative priority order. |
 | TR-043 | CJ-015, CJ-032 | Active native-platform PRD | `PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS.md` | Restored as the active PRD after the unresolved Zoom-first candidate was retired. |
 | TR-044 | CJ-031, CJ-032 | Zoom-first PRD candidate | `docs/archive/PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS_V2_ZOOM_FIRST_STALE.md` | Retained as stale traceability history; it is not an active PRD or a completed KRYSTALIZE decision. |
+| TR-051 | CJ-064 | LT-065 through LT-070 | `docs/01_PRODUCT/PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS.md`, `docs/03_CONTRACTS/STATE_MODEL_CONTRACT.md`, `docs/04_IMPLEMENTATION/ARCHITECTURE.md` | Workshop Source Pack is the shared facilitator-approved grounding boundary for Bud. |

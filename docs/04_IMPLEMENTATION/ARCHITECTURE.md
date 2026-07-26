@@ -78,8 +78,7 @@ and emits privacy-scoped updates.
 
 ### LiveKit
 
-LiveKit supplies the real-time room, participant presence, microphone
-publishing, and signalling layer. It was selected for the prototype because it
+LiveKit supplies the real-time room, participant presence, microphone and optional camera/screen publishing, and signalling layer. It was selected for the prototype because it
 provides a controllable native room runtime without requiring a Zoom marketplace
 application, external meeting-platform authorization, or a platform-specific
 transcript integration.
@@ -87,6 +86,10 @@ transcript integration.
 LiveKit is communication infrastructure, not Bud's reasoning layer. A future
 Zoom/Meet adapter can feed the same normalized event boundary, but that is not
 an MVP dependency.
+
+### Live-vid media policy
+
+The `live-vid` branch has one main media space. At most one screen-share track may be active at a time. The facilitator can share by default; participant screen sharing is permission-controlled, and a second share is rejected rather than silently replacing or queueing the current share. The facilitator may stop an active participant share. The facilitator camera is optional presence media. Participant camera video is not required. Camera and screen tracks are not passed to Bud Core, are not recorded, and are not written to the event log. Bud continues to reason from permitted text and microphone transcripts only.
 
 ### Bud AI Core
 
@@ -117,6 +120,38 @@ derived from participant-reported signals and does not expose private Bud
 messages. Both behaviors remain subject to the same privacy and uncertainty
 rules as manually requested support.
 
+## Workshop Source Pack Architecture
+
+The facilitator's approved workshop materials form a separate, workshop-scoped
+Source Pack. The prototype accepts `.pptx`, `.pdf`, and `.docx`; Google Slides
+enters through an explicit exported PDF/PPTX import rather than a Google
+authorization flow. The ingestion boundary extracts text and preserves
+slide/page/section locations. A later implementation may replace the local
+extractor with a richer parser or retrieval index without changing Bud's
+normalized evidence contract.
+
+The application owns Source Pack lifecycle:
+
+1. The facilitator uploads or imports materials into a draft version.
+2. The application validates the file type, associates it with the workshop,
+   and extracts/indexes permitted text.
+3. The facilitator activates one version before or during the workshop.
+4. Bud retrieves only from the active version for shared grounding.
+5. A replacement creates a new version; historical evidence keeps the prior
+   version reference.
+
+Source Pack content is shared workshop context, not private learner context.
+Learner messages and private Bud conversations never become source material
+automatically. Bud answers should carry source location references when
+available and must use `WAIT`/`NO_ACTION` or ask for clarification when the
+active materials do not support a workshop-specific answer.
+
+The current prototype may begin with local extracted text and a simple
+retrieval index. Production deployment would need durable object storage,
+malware scanning, stronger document parsing, access controls, deletion and
+retention policies, and an embedding or full-text retrieval strategy sized to
+the workshop corpus.
+
 ## Docker Compose Topology
 
 The repository's `docker-compose.yml` runs five services:
@@ -143,6 +178,8 @@ Model data is kept outside the application image:
 - NLLB model data uses the `nllb-models` volume.
 - Qwen uses the `qwen-models` volume by default or a host bind mount supplied
   through `QWEN_MODEL_MOUNT`.
+- Workshop Source Packs use the `source-packs` volume and are mounted at
+  `/app/data/source-packs` in the Bud container.
 
 `make` is the default foreground launch command. `make up-d` runs in the
 background; `make logs`, `make ps`, `make down`, and `make clean` manage the
@@ -172,6 +209,8 @@ stack.
 - The model proposes decisions; application validation and human authority
   determine whether bounded actions occur.
 - Raw audio is not written to the session log by the prototype.
+- Camera and screen-share media are not recorded or written to the session log.
+- Screen-share audio is optional, requires browser tab-audio selection, and remains separate from Bud's microphone transcription path.
 
 ## Prototype Constraints
 
@@ -181,6 +220,7 @@ stack.
 - Workshop state is in memory and is lost when the application server stops.
 - The local stack is intended for the teacher-hosted prototype and LAN/demo
   operation, not production internet deployment.
+- The `live-vid` media path requires browser permissions and, for reliable external-network use, HTTPS/WSS and TURN/network configuration.
 - External deployment requires authentication, HTTPS/WSS, TURN/network
   configuration, durable persistence, tenant isolation, and a model-serving
   capacity plan.

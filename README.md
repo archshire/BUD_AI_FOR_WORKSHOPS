@@ -102,6 +102,17 @@ display name, and joins the allocated room. `/topview` is for the development
 team and shows live operational data; it is not part of the participant or
 facilitator workflow.
 
+### Workshop Source Pack
+
+From the facilitator page, choose a `.pptx`, `.pdf`, or `.docx` file in the
+**Workshop Source Pack** section and upload it. Google Slides can be exported
+as PDF or PowerPoint and uploaded through the same flow. Activate the version
+you want Bud to use. The server extracts text locally, preserves slide/page
+locations, and uses the active material as shared grounding for learner Bud
+and Facil-Bud. Uploaded Source Pack data is stored under `data/source-packs/`
+by default, persisted in the Docker `source-packs` volume, and intentionally
+ignored by Git.
+
 By default, Qwen uses the persistent Docker volume `qwen-models`. A clean
 checkout does not contain model weights, so either mount an existing host model
 directory:

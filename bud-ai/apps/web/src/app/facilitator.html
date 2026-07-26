@@ -41,6 +41,12 @@
             <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
           </div>
         </div>
+        <section class="media-stage" aria-labelledby="facilitator-media-title">
+          <div class="section-head"><h3 id="facilitator-media-title">Workshop media</h3><span id="facilitator-media-status">No shared screen</span></div>
+          <div class="main-media" id="facilitator-main-media"><p class="empty">The main workshop screen will appear here.</p></div>
+          <div class="media-strip" id="facilitator-media-strip" aria-label="Live workshop video"></div>
+          <div class="media-actions"><button class="secondary-action" id="facilitator-camera-button" disabled>Start camera</button><button class="secondary-action" id="facilitator-screen-button" disabled>Share screen + audio</button><button class="secondary-action" id="participant-permission-button" disabled>Allow participant screen sharing</button></div>
+        </section>
         <div class="room-feed" id="room-feed" aria-live="polite"></div>
       </section>
 
@@ -69,6 +75,26 @@
           </div>
         </form>
         <div id="room-list" class="room-list" aria-live="polite"></div>
+      </section>
+
+      <section class="source-pack-panel" aria-labelledby="source-pack-title">
+        <div class="section-head">
+          <div>
+            <p class="eyebrow">Shared workshop grounding</p>
+            <h2 id="source-pack-title">Workshop Source Pack</h2>
+          </div>
+          <span class="privacy-pill">Facilitator controlled</span>
+        </div>
+        <p class="panel-note">Upload approved slides or documents so every Bud can follow the same workshop material.</p>
+        <form id="source-pack-form" class="management-form">
+          <label for="source-pack-file">Add source material</label>
+          <div>
+            <input id="source-pack-file" type="file" accept=".pptx,.pdf,.docx">
+            <button class="primary-action" type="submit">Upload source</button>
+          </div>
+        </form>
+        <p class="source-pack-status" id="source-pack-status" role="status">No source pack uploaded yet.</p>
+        <div id="source-pack-list" class="source-pack-list" aria-live="polite"></div>
       </section>
 
       <section class="facil-bud-panel" aria-labelledby="facil-bud-title">
