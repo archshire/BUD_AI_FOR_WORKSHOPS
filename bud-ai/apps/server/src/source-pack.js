@@ -35,7 +35,7 @@ function createSourcePackStore(rootDirectory) {
     try {
       return JSON.parse(fs.readFileSync(manifestPath(roomName), "utf8"));
     } catch (error) {
-      return { room_name: roomName, active_version: null, versions: [] };
+      return { room_name: roomName, active_version: null, versions: [], learning_plan_draft: "", learning_plan: "" };
     }
   }
 
@@ -112,36 +112,56 @@ function createSourcePackStore(rootDirectory) {
     return summarizeManifest(readManifest(roomName));
   }
 
+  function setLearningPlan(roomName, plan, draft) {
+    const manifest = readManifest(roomName);
+    manifest.learning_plan_draft = draft ? String(plan || "").trim() : manifest.learning_plan_draft || "";
+    if (!draft) manifest.learning_plan = String(plan || "").trim();
+    writeManifest(roomName, manifest);
+    return { draft: manifest.learning_plan_draft || "", locked: manifest.learning_plan || "" };
+  }
+
+  function learningPlan(roomName) {
+    const manifest = readManifest(roomName);
+    return { draft: manifest.learning_plan_draft || "", locked: manifest.learning_plan || "" };
+  }
+
   function pages(roomName) {
     const manifest = readManifest(roomName);
     const active = manifest.versions.find(function (version) { return version.version === manifest.active_version; });
-    if (!active) return { version: null, pages: [] };
+    if (!active) return { version: null, pages: [], learning_plan: manifest.learning_plan || "" };
     const result = [];
     active.materials.forEach(function (material) {
       const extractedPath = path.join(root, material.extracted_text_ref);
       try {
-        const extracted = JSON.parse(fs.readFileSync(extractedPath, "utf8"));
+        const extracted = enrichedExtraction(material, extractedPath);
         extracted.chunks.forEach(function (chunk, index) {
           result.push({
             page_id: material.material_id + "-" + index,
             filename: material.filename,
             location: chunk.location,
-            text: chunk.text
+            text: chunk.text,
+            blocks: chunk.blocks || null
           });
         });
       } catch (error) {
         // A missing extracted artifact is treated as unavailable material.
       }
     });
-    return { version: active.version, pages: result };
+    return { version: active.version, pages: result, learning_plan: manifest.learning_plan || "" };
   }
 
-  function context(roomName, question) {
+  function context(roomName, question, options) {
     const manifest = readManifest(roomName);
-    const active = manifest.versions.find(function (version) { return version.version === manifest.active_version; });
+    const includeDraft = options && options.include_draft;
+    const active = includeDraft
+      ? manifest.versions[manifest.versions.length - 1]
+      : manifest.versions.find(function (version) { return version.version === manifest.active_version; });
     if (!active) return { version: null, chunks: [], text: "" };
     const allChunks = [];
-    active.materials.forEach(function (material) {
+    const materials = options && options.latest_material_only
+      ? active.materials.slice(-1)
+      : active.materials;
+    materials.forEach(function (material) {
       const extractedPath = path.join(root, material.extracted_text_ref);
       try {
         const extracted = JSON.parse(fs.readFileSync(extractedPath, "utf8"));
@@ -154,7 +174,9 @@ function createSourcePackStore(rootDirectory) {
     });
     const terms = tokenize(question);
     allChunks.sort(function (left, right) { return score(right.text, terms) - score(left.text, terms); });
-    const selected = allChunks.filter(function (chunk) { return !terms.length || score(chunk.text, terms) > 0; }).slice(0, 4);
+    const selected = options && options.all_chunks
+      ? allChunks.slice(0, 24)
+      : allChunks.filter(function (chunk) { return !terms.length || score(chunk.text, terms) > 0; }).slice(0, 4);
     const fallback = selected.length ? selected : allChunks.slice(0, 2);
     return {
       version: active.version,
@@ -165,7 +187,19 @@ function createSourcePackStore(rootDirectory) {
     };
   }
 
-  return { addMaterial, activate, get, pages, context, root };
+  return { addMaterial, activate, get, pages, context, setLearningPlan, learningPlan, root };
+}
+
+function enrichedExtraction(material, extractedPath) {
+  const extracted = JSON.parse(fs.readFileSync(extractedPath, "utf8"));
+  if (material.media_type !== "docx" || extracted.chunks.some(function (chunk) { return Array.isArray(chunk.blocks); })) {
+    return extracted;
+  }
+  const sourcePath = path.join(path.dirname(extractedPath), material.material_id + ".docx");
+  if (!fs.existsSync(sourcePath)) return extracted;
+  const enriched = extractMaterial(sourcePath, "docx");
+  fs.writeFileSync(extractedPath, JSON.stringify(enriched, null, 2));
+  return enriched;
 }
 
 function extensionFor(filename) {
@@ -186,7 +220,8 @@ function extractMaterial(filePath, type) {
     : files.filter(function (name) { return /^ppt\/slides\/slide\d+\.xml$/.test(name); }).sort(naturalFileOrder);
   const chunks = targets.map(function (name, index) {
     const xml = childProcess.execFileSync("unzip", ["-p", filePath, name], { encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
-    return { location: type === "docx" ? "document" : "slide " + (index + 1), text: cleanXml(xml) };
+    if (type === "docx") return docxChunk(xml);
+    return { location: "slide " + (index + 1), text: cleanXml(xml) };
   }).filter(function (chunk) { return chunk.text; });
   return { chunks: chunks.length ? chunks : [{ location: "document", text: "No extractable text found in this source file." }] };
 }
@@ -197,6 +232,102 @@ function listZipFiles(filePath) {
 
 function cleanXml(xml) {
   return decodeEntities(xml.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim());
+}
+
+function docxChunk(xml) {
+  const blocks = parseDocxBlocks(xml);
+  const text = blocks.map(function (block) {
+    if (block.type === "table") {
+      return block.rows.map(function (row) { return row.join(" | "); }).join("\n");
+    }
+    return block.text;
+  }).filter(Boolean).join("\n\n");
+  return { location: "document", text: text, blocks: blocks };
+}
+
+function parseDocxBlocks(xml) {
+  const bodyMatch = xml.match(/<w:body[\s\S]*?>([\s\S]*?)<\/w:body>/);
+  const body = bodyMatch ? bodyMatch[1] : xml;
+  const blocks = [];
+  const blockPattern = /<w:p[\s\S]*?<\/w:p>|<w:tbl[\s\S]*?<\/w:tbl>/g;
+  let match;
+  while ((match = blockPattern.exec(body))) {
+    const fragment = match[0];
+    if (fragment.indexOf("<w:tbl") === 0) {
+      const table = parseDocxTable(fragment);
+      if (table.rows.length) blocks.push(table);
+    } else {
+      const paragraph = parseDocxParagraph(fragment);
+      if (paragraph.text) blocks.push(paragraph);
+    }
+  }
+  return blocks;
+}
+
+function parseDocxParagraph(xml) {
+  const styleMatch = xml.match(/<w:pStyle[^>]*w:val="([^"]+)"/);
+  const style = styleMatch ? styleMatch[1] : "";
+  const alignMatch = xml.match(/<w:jc[^>]*w:val="([^"]+)"/);
+  const runs = [];
+  const runPattern = /<w:r[\s\S]*?<\/w:r>/g;
+  let match;
+  while ((match = runPattern.exec(xml))) {
+    const run = parseDocxRun(match[0]);
+    if (run.text) runs.push(run);
+  }
+  const fallback = runs.length ? "" : cleanXml(xml);
+  const text = runs.length ? runs.map(function (run) { return run.text; }).join("") : fallback;
+  return {
+    type: paragraphType(style, xml),
+    style: style,
+    align: alignMatch ? alignMatch[1] : "",
+    list: /<w:numPr[\s\S]*?<\/w:numPr>/.test(xml),
+    text: text.replace(/\u00a0/g, " ").trim(),
+    runs: runs
+  };
+}
+
+function parseDocxRun(xml) {
+  const pieces = [];
+  const textPattern = /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:tab\/>|<w:br\/>/g;
+  let match;
+  while ((match = textPattern.exec(xml))) {
+    if (match[0].indexOf("<w:tab") === 0) pieces.push("\t");
+    else if (match[0].indexOf("<w:br") === 0) pieces.push("\n");
+    else pieces.push(decodeEntities(match[1] || ""));
+  }
+  return {
+    text: pieces.join(""),
+    bold: /<w:b(?:\s[^>]*)?\/>/.test(xml),
+    italic: /<w:i(?:\s[^>]*)?\/>/.test(xml),
+    underline: /<w:u(?:\s[^>]*)?\/>/.test(xml)
+  };
+}
+
+function parseDocxTable(xml) {
+  const rows = [];
+  const rowPattern = /<w:tr[\s\S]*?<\/w:tr>/g;
+  let rowMatch;
+  while ((rowMatch = rowPattern.exec(xml))) {
+    const cells = [];
+    const cellPattern = /<w:tc[\s\S]*?<\/w:tc>/g;
+    let cellMatch;
+    while ((cellMatch = cellPattern.exec(rowMatch[0]))) {
+      const cellText = parseDocxBlocks(cellMatch[0]).map(function (block) { return block.text; }).filter(Boolean).join("\n");
+      cells.push(cellText || cleanXml(cellMatch[0]));
+    }
+    if (cells.length) rows.push(cells);
+  }
+  return { type: "table", rows: rows };
+}
+
+function paragraphType(style, xml) {
+  if (/title/i.test(style)) return "title";
+  if (/heading1|Heading1/i.test(style)) return "heading1";
+  if (/heading2|Heading2/i.test(style)) return "heading2";
+  if (/heading3|Heading3/i.test(style)) return "heading3";
+  if (/<w:numPr[\s\S]*?<\/w:numPr>/.test(xml)) return "list";
+  return "paragraph";
 }
 
 function splitText(text, label) {

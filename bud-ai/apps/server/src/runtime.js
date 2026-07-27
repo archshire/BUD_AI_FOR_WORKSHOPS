@@ -40,6 +40,10 @@ function createBudRuntime(options) {
     state.addMessage(Object.assign({}, message, { scope: message.scope || "private_participant_ai" }));
   }
 
+  function recordTaskResponse(response) {
+    state.recordTaskResponse(response);
+  }
+
   function recordFacilitatorSignal(signal) {
     state.addFacilitatorSignal(signal);
   }
@@ -49,6 +53,7 @@ function createBudRuntime(options) {
     observeParticipation,
     recordSharedMessage,
     recordPrivateMessage,
+    recordTaskResponse,
     recordFacilitatorSignal,
     getStateSnapshot: state.getSnapshot
   };

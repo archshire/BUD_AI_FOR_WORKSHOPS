@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Participant Setup | SUTD Academy</title>
+    <link rel="stylesheet" href="/participant-setup.css?v=2">
+  </head>
+  <body>
+    <main class="setup-shell">
+      <header class="setup-header">
+        <img src="/assets/SA.png" alt="SUTD Academy">
+        <div><p>SUTD Academy Learning Spaces</p><h1>Workshop setup</h1></div>
+        <div class="bud-preview" aria-label="Your Bud">
+          <img id="setup-bud-avatar" src="/assets/bud-pics/bud-1.png" alt="Your Bud">
+          <span><small>YOUR BUD</small><strong id="setup-bud-name">Learner's Bud</strong></span>
+        </div>
+        <span class="room-chip" id="room-chip">Workshop</span>
+      </header>
+      <div class="setup-layout">
+        <nav class="setup-nav" aria-label="Participant workspace">
+          <button class="nav-item is-active" type="button">01 <span>Setup<small>Required before joining</small></span></button>
+          <button class="nav-item" type="button" disabled>02 <span>My Bud<small>Available after setup</small></span></button>
+          <button class="nav-item" type="button" disabled>03 <span>Workshop<small>Available after setup</small></span></button>
+        </nav>
+        <section class="setup-content" aria-labelledby="setup-title">
+          <p class="eyebrow">First visit</p>
+          <h2 id="setup-title">Let’s get your learning space ready</h2>
+          <p class="intro">Complete these checks before entering the workshop. Any problems can be resolved here, before the session begins.</p>
+          <div class="checks">
+            <article class="check" id="check-language"><span class="check-icon">1</span><div><h3>Choose your native language</h3><p>Bud will use this to understand your input and avoid treating other languages as your primary response language.</p><select id="native-language"><option>English</option><option>Spanish</option><option>Chinese (Simplified)</option><option>Burmese</option><option>French</option><option>Thai</option></select></div><strong class="check-state">Ready</strong></article>
+            <article class="check" id="check-mic"><span class="check-icon">2</span><div><h3>Test your microphone</h3><p>Connect to the workshop, then speak a short sentence. We will confirm local capture and that your published microphone can reach another connected client.</p><div class="mic-actions"><button class="secondary-button" id="mic-connect" type="button">Connect for test</button><button class="secondary-button" id="mic-test" type="button" disabled>Test microphone</button><div class="mic-meter" id="mic-meter" aria-label="Microphone sound level"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div><p class="check-message" id="mic-message" role="status"></p></div><strong class="check-state" id="mic-state">Not tested</strong></article>
+            <article class="check" id="check-docs"><span class="check-icon">3</span><div><h3>Open workshop material</h3><p>Confirm that the first pages of the leader’s documents are available to you.</p><button class="secondary-button" id="docs-test" type="button">Test document access</button><p class="check-message" id="docs-message" role="status"></p></div><strong class="check-state" id="docs-state">Not tested</strong></article>
+            <article class="check" id="check-privacy"><span class="check-icon">4</span><div><h3>Confirm your privacy choice</h3><label class="consent"><input id="privacy-consent" type="checkbox"> I understand that workshop interactions may be recorded as bounded learning evidence, while private Bud messages remain private.</label></div><strong class="check-state" id="privacy-state">Required</strong></article>
+          </div>
+          <button class="enter-button" id="enter-workshop" type="button" disabled>Activate my Bud and enter workshop</button>
+          <p class="setup-status" id="setup-status" role="status"></p>
+        </section>
+      </div>
+    </main>
+    <script src="/vendor/livekit-client.js"></script>
+    <script src="/participant-setup.js?v=4"></script>
+  </body>
+</html>

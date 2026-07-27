@@ -1,5 +1,9 @@
-function createInMemoryStateStore(initialState) {
-  const state = initialState || {
+const fs = require("fs");
+const path = require("path");
+
+function createInMemoryStateStore(initialState, options) {
+  const persistencePath = (options && options.persistencePath) || process.env.BUD_STATE_FILE || "";
+  let state = initialState || {
     workshop: {
       workshop_id: "workshop-demo",
       title: "Bud AI Demo Workshop",
@@ -36,8 +40,28 @@ function createInMemoryStateStore(initialState) {
       }
     },
     messages: [],
+    task_responses: {},
     tool_results: []
   };
+
+  if (!initialState && persistencePath) {
+    try {
+      state = JSON.parse(fs.readFileSync(persistencePath, "utf8"));
+    } catch (error) {
+      // A first run or an unreadable state file starts with a clean workshop.
+    }
+  }
+  if (!state.task_responses) state.task_responses = {};
+
+  function persist() {
+    if (!persistencePath) return;
+    try {
+      fs.mkdirSync(path.dirname(persistencePath), { recursive: true });
+      fs.writeFileSync(persistencePath, JSON.stringify(state, null, 2));
+    } catch (error) {
+      // Runtime operation remains available if optional local persistence fails.
+    }
+  }
 
   function recordEvent(event) {
     state.workshop.evidence_index.push({
@@ -53,6 +77,7 @@ function createInMemoryStateStore(initialState) {
       created_at: event.occurred_at
     });
     state.workshop.updated_at = new Date().toISOString();
+    persist();
   }
 
   function applyParticipantPatch(participantId, patch, evidenceRefs) {
@@ -91,6 +116,7 @@ function createInMemoryStateStore(initialState) {
       );
     }
     state.participants[participantId].updated_at = new Date().toISOString();
+    persist();
   }
 
   function applyGroupPatch(groupId, patch, evidenceRefs) {
@@ -111,19 +137,48 @@ function createInMemoryStateStore(initialState) {
       );
     }
     state.groups[groupId].updated_at = new Date().toISOString();
+    persist();
   }
 
   function addMessage(message) {
     state.messages.push(message);
+    persist();
   }
 
   function addSharedMessage(message) {
     state.messages.push(Object.assign({}, message, { scope: "group_shared" }));
+    persist();
+  }
+
+  function recordTaskResponse(response) {
+    const roomName = response.room_name || "BUD-101";
+    const taskId = response.task_id || "task";
+    if (!state.task_responses[roomName]) state.task_responses[roomName] = {};
+    if (!state.task_responses[roomName][taskId]) {
+      state.task_responses[roomName][taskId] = {
+        task_id: taskId,
+        task_index: response.task_index,
+        task_text: response.task_text || "",
+        section: response.section || "",
+        responses: {}
+      };
+    }
+    state.task_responses[roomName][taskId].task_index = response.task_index;
+    state.task_responses[roomName][taskId].task_text = response.task_text || state.task_responses[roomName][taskId].task_text;
+    state.task_responses[roomName][taskId].section = response.section || state.task_responses[roomName][taskId].section;
+    state.task_responses[roomName][taskId].responses[response.participant_id] = {
+      participant_id: response.participant_id,
+      display_name: response.display_name || response.participant_id,
+      response: response.response,
+      updated_at: response.updated_at || new Date().toISOString()
+    };
+    persist();
   }
 
   function addFacilitatorSignal(signal) {
     state.workshop.facilitator_signals.push(signal);
     state.workshop.updated_at = new Date().toISOString();
+    persist();
   }
 
   function markEvidenceDisputed(eventId) {
@@ -133,10 +188,12 @@ function createInMemoryStateStore(initialState) {
       }
       return item;
     });
+    persist();
   }
 
   function recordToolResult(result) {
     state.tool_results.push(result);
+    persist();
   }
 
   function getSnapshot() {
@@ -149,6 +206,7 @@ function createInMemoryStateStore(initialState) {
     applyGroupPatch,
     addMessage,
     addSharedMessage,
+    recordTaskResponse,
     addFacilitatorSignal,
     markEvidenceDisputed,
     recordToolResult,

@@ -10,6 +10,7 @@ const elements = {
   promptText: document.getElementById("prompt-text"),
   workshopTimer: document.getElementById("workshop-timer"),
   attachmentList: document.getElementById("attachment-list"),
+  learningPlanTasks: document.getElementById("learning-plan-tasks"),
   messages: document.getElementById("messages"),
   understanding: document.getElementById("understanding"),
   participation: document.getElementById("participation"),
@@ -44,7 +45,8 @@ const elements = {
   sharedForm: document.getElementById("shared-message-form"),
   sharedInput: document.getElementById("shared-message-input"),
   form: document.getElementById("message-form"),
-  input: document.getElementById("message-input")
+  input: document.getElementById("message-input"),
+  budThinking: document.getElementById("bud-thinking")
 };
 
 let latestDismissedMessageId = "";
@@ -55,16 +57,36 @@ let speechCaptureStream = null;
 let speechCaptureActive = false;
 let roomParticipants = {};
 let speechChunkSequence = 0;
-let latestSpeechSequence = 0;
+let latestRenderedSequence = 0;
 let periodicSummaryTimer = null;
 let silenceTimeout = null;
 let workshopPages = [];
+let learningPlanTasks = [];
 let currentDocumentPage = 0;
 let completedTasks = {};
+let taskResponses = {};
 const SILENCE_TIMEOUT_MS = 15000;
+let speechVadContext = null;
+let speechVadAnalyser = null;
+let speechVadData = null;
+let speechVadTimer = null;
+let speechVadEnabled = false;
+let speechHeardInChunk = false;
+let speechLastHeardAt = 0;
+let speechChunkStartedAt = 0;
+const SPEECH_LEVEL_THRESHOLD = 0.06;
+const SPEECH_PAUSE_MS = 700;
+const SPEECH_MAX_UTTERANCE_MS = 15000;
+const SPEECH_IDLE_RECYCLE_MS = 6000;
+const SPEECH_VAD_INTERVAL_MS = 50;
 
 function getParticipantId() {
   const key = "bud-participant-id";
+  const queryParticipantId = new URLSearchParams(window.location.search).get("participant_id");
+  if (queryParticipantId) {
+    window.sessionStorage.setItem(key, queryParticipantId);
+    return queryParticipantId;
+  }
   let participantId = window.sessionStorage.getItem(key);
   if (!participantId) {
     participantId = "learner-" + Math.random().toString(36).slice(2, 10);
@@ -74,14 +96,16 @@ function getParticipantId() {
 }
 
 function boot() {
+  applyDisplayNameFromQuery();
   elements.connectButton.addEventListener("click", connectWorkshop);
   elements.nameInput.addEventListener("input", updateBudName);
   elements.form.addEventListener("keydown", submitOnEnter);
+  if (elements.sharedForm) elements.sharedForm.addEventListener("keydown", submitOnEnter);
   elements.microphoneButton.addEventListener("click", publishMicrophone);
   elements.documentPrevious.addEventListener("click", function () { changeDocumentPage(-1); });
   elements.documentNext.addEventListener("click", function () { changeDocumentPage(1); });
   elements.documentTaskDone.addEventListener("click", completeCurrentTask);
-  elements.clearCaptions.addEventListener("click", clearCaptions);
+  if (elements.clearCaptions) elements.clearCaptions.addEventListener("click", clearCaptions);
   elements.helpButton.addEventListener("click", function () {
     postJson("/api/help-stuck", { participant_id: PARTICIPANT_ID });
   });
@@ -98,16 +122,6 @@ function boot() {
     }
   });
 
-  document.querySelectorAll(".comprehension-button").forEach(function (button) {
-    button.addEventListener("click", function () {
-      postJson("/api/comprehension-response", {
-        participant_id: PARTICIPANT_ID,
-        response: button.dataset.response,
-        page_id: workshopPages[currentDocumentPage] && workshopPages[currentDocumentPage].page_id
-      });
-    });
-  });
-
   elements.form.addEventListener("submit", function (event) {
     event.preventDefault();
     const text = elements.input.value.trim();
@@ -118,21 +132,27 @@ function boot() {
     postJson("/api/private-message", {
       participant_id: PARTICIPANT_ID,
       room_name: elements.roomInput.value.trim(),
+      native_language: elements.nativeLanguageInput.value,
       text: text
     });
   });
 
-  elements.sharedForm.addEventListener("submit", function (event) {
-    event.preventDefault();
-    const text = elements.sharedInput.value.trim();
-    if (!text) return;
-    elements.sharedInput.value = "";
-    postJson("/api/group-message", {
-      participant_id: PARTICIPANT_ID,
-      text: text,
-      language: elements.nativeLanguageInput.value
+  if (elements.sharedForm) {
+    elements.sharedForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      const text = elements.sharedInput.value.trim();
+      if (!text) return;
+      elements.sharedInput.value = "";
+      postJson("/api/group-message", {
+        room_name: elements.roomInput.value.trim() || "BUD-101",
+        participant_id: PARTICIPANT_ID,
+        sender_display_name: elements.nameInput.value.trim() || PARTICIPANT_ID,
+        group_id: "group-main",
+        text: text,
+        language: elements.nativeLanguageInput.value
+      });
     });
-  });
+  }
 
   getState();
   window.setInterval(getState, 3000);
@@ -142,6 +162,23 @@ function boot() {
   applyLearnerBackground();
   applyBudAvatar();
   refreshWorkshopMaterial();
+  if (window.BudTalk) {
+    window.BudTalk({
+      button: document.querySelector("#shared-talk"),
+      status: document.querySelector("#shared-talk-status"),
+      participantId: PARTICIPANT_ID,
+      getRoomName: function () { return elements.roomInput.value.trim() || "BUD-101"; },
+      getGroupId: function () { return "group-main"; },
+      getNativeLanguage: function () { return elements.nativeLanguageInput.value || "en"; },
+      getTargetLanguage: function () { return elements.languageInput.value || "en"; },
+      onPosted: getState
+    });
+  }
+}
+
+function applyDisplayNameFromQuery() {
+  const queryName = new URLSearchParams(window.location.search).get("name");
+  if (queryName && elements.nameInput) elements.nameInput.value = queryName;
 }
 
 function submitOnEnter(event) {
@@ -149,13 +186,13 @@ function submitOnEnter(event) {
     return;
   }
   event.preventDefault();
-  if (elements.input.value.trim()) {
-    elements.form.requestSubmit();
+  if (event.target.value.trim() && event.target.form) {
+    event.target.form.requestSubmit();
   }
 }
 
 function applyLearnerBackground() {
-  const palette = ["#6f9ee8", "#e8ad43", "#63b981", "#d875a0", "#4ca7a7"];
+  const palette = ["#4f86d9", "#e1a332", "#3ea66f", "#c95c86", "#2d9c9c"];
   const storageKey = "bud-learner-background";
   let color = window.sessionStorage.getItem(storageKey);
   if (!color || palette.indexOf(color) === -1) {
@@ -182,12 +219,12 @@ function updateBudName() {
   const learnerName = elements.nameInput.value.trim() || "Learner";
   const budName = learnerName + "'s Bud";
   elements.budPanelTitle.textContent = budName;
-  elements.activityTitle.textContent = budName + " Thread";
+  if (elements.activityTitle) elements.activityTitle.textContent = budName + " Thread";
   elements.messageLabel.textContent = "Message " + budName;
 }
 
 function refreshWorkshopMaterial() {
-  fetch("/api/workshop-material?room=" + encodeURIComponent(elements.roomInput.value.trim() || "bud-demo-room"))
+  fetch("/api/workshop-material?room=" + encodeURIComponent(elements.roomInput.value.trim() || "BUD-101"))
     .then(function (response) {
       if (!response.ok) throw new Error("Workshop material unavailable");
       return response.json();
@@ -196,14 +233,17 @@ function refreshWorkshopMaterial() {
       workshopPages = payload.pages && payload.pages.length
         ? payload.pages
         : [{ page_id: "documents", filename: "Workshop documents", location: "Current activity", text: "Read the workshop documents. Complete the current task, ask Bud about anything unclear, and identify the evidence that would show the task was completed." }];
+      learningPlanTasks = parseLearningPlanTasks(payload.learning_plan || "");
       currentDocumentPage = Math.min(currentDocumentPage, workshopPages.length - 1);
       renderAttachments();
+      renderLearningPlanTasks();
       renderDocumentPage();
     })
     .catch(function () {});
 }
 
 function renderAttachments() {
+  if (!elements.attachmentList) return;
   const filenames = [];
   workshopPages.forEach(function (page) {
     if (filenames.indexOf(page.filename) === -1) filenames.push(page.filename);
@@ -238,24 +278,198 @@ function renderDocumentPage() {
   elements.documentLocation.textContent = page.location;
   elements.documentPageNumber.textContent = "Page " + (currentDocumentPage + 1) + " of " + workshopPages.length;
   elements.documentPageHeading.textContent = page.filename;
-  elements.documentContent.textContent = page.text;
+  renderDocumentContent(page);
   elements.documentPrevious.disabled = currentDocumentPage === 0;
   elements.documentNext.disabled = currentDocumentPage === workshopPages.length - 1;
-  const isTask = page.text.toLowerCase().indexOf("task:") !== -1;
+  const currentTask = taskForPage(page, currentDocumentPage);
+  const isTask = Boolean(currentTask) || page.text.toLowerCase().indexOf("task:") !== -1;
+  const completionKey = taskCompletionKey(page);
   elements.documentTaskAction.hidden = !isTask;
-  elements.documentTaskLabel.textContent = isTask ? "Task on this page" : "";
-  elements.documentTaskDone.textContent = completedTasks[page.page_id] ? "Task completed" : "Mark task done";
-  elements.documentTaskDone.disabled = Boolean(completedTasks[page.page_id]);
+  elements.documentTaskLabel.textContent = currentTask ? currentTask.text : "Task on this page";
+  elements.documentTaskDone.textContent = completedTasks[completionKey] ? "Task completed" : "Mark task done";
+  elements.documentTaskDone.disabled = Boolean(completedTasks[completionKey]);
+  renderLearningPlanTasks();
+}
+
+function renderDocumentContent(page) {
+  elements.documentContent.innerHTML = "";
+  const blocks = Array.isArray(page.blocks) ? page.blocks : [];
+  if (!blocks.length) {
+    const fallback = document.createElement("p");
+    fallback.textContent = page.text || "";
+    elements.documentContent.appendChild(fallback);
+    return;
+  }
+  blocks.forEach(function (block) {
+    elements.documentContent.appendChild(renderDocxBlock(block));
+  });
+}
+
+function renderDocxBlock(block) {
+  if (block.type === "table") return renderDocxTable(block);
+  const tagName = block.type === "title" ? "h2"
+    : block.type === "heading1" ? "h3"
+    : block.type === "heading2" ? "h4"
+    : block.type === "heading3" ? "h5"
+    : block.list ? "li"
+    : "p";
+  const element = document.createElement(tagName);
+  element.className = "docx-block docx-" + (block.type || "paragraph");
+  if (block.align) element.dataset.align = block.align;
+  const runs = Array.isArray(block.runs) && block.runs.length ? block.runs : [{ text: block.text || "" }];
+  runs.forEach(function (run) { element.appendChild(renderDocxRun(run)); });
+  return element;
+}
+
+function renderDocxRun(run) {
+  let node = document.createTextNode(run.text || "");
+  if (run.underline) {
+    const underline = document.createElement("u");
+    underline.appendChild(node);
+    node = underline;
+  }
+  if (run.italic) {
+    const italic = document.createElement("em");
+    italic.appendChild(node);
+    node = italic;
+  }
+  if (run.bold) {
+    const bold = document.createElement("strong");
+    bold.appendChild(node);
+    node = bold;
+  }
+  return node;
+}
+
+function renderDocxTable(block) {
+  const table = document.createElement("table");
+  table.className = "docx-table";
+  (block.rows || []).forEach(function (row) {
+    const tr = document.createElement("tr");
+    row.forEach(function (cell) {
+      const td = document.createElement("td");
+      td.textContent = cell;
+      tr.appendChild(td);
+    });
+    table.appendChild(tr);
+  });
+  return table;
+}
+
+function parseLearningPlanTasks(plan) {
+  const lines = String(plan || "").split(/\r?\n/).map(function (line) { return line.trim(); }).filter(Boolean);
+  const tasks = [];
+  let currentSection = "";
+  lines.forEach(function (line) {
+    const numbered = line.match(/^\d+[\).\s-]+(.+)/);
+    if (numbered && !/\btask\b/i.test(line)) currentSection = numbered[1].replace(/[:*#]+$/g, "").trim();
+    const taskMatch = line.match(/\btask\b\s*[:\-]\s*(.+)$/i);
+    if (taskMatch) {
+      tasks.push({ section: currentSection || "Learning plan", text: taskMatch[1].trim() });
+      return;
+    }
+    if (/^\s*[-*]\s+/i.test(line) && /\b(complete|identify|discuss|write|compare|reflect|create|answer|read)\b/i.test(line)) {
+      tasks.push({ section: currentSection || "Learning plan", text: line.replace(/^\s*[-*]\s+/, "") });
+    }
+  });
+  return tasks;
+}
+
+function renderLearningPlanTasks() {
+  if (!elements.learningPlanTasks) return;
+  elements.learningPlanTasks.innerHTML = "";
+  if (!learningPlanTasks.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "No learning plan tasks published yet.";
+    elements.learningPlanTasks.appendChild(empty);
+    return;
+  }
+  learningPlanTasks.forEach(function (task, index) {
+    const item = document.createElement("article");
+    const taskId = taskResponseId(index);
+    item.className = "learning-plan-task" + (index === currentDocumentPage ? " is-current" : "") + (completedTasks[taskId] ? " is-complete" : "");
+    const label = document.createElement("strong");
+    label.textContent = "Task " + (index + 1);
+    const text = document.createElement("p");
+    text.textContent = task.text;
+    const section = document.createElement("span");
+    section.textContent = task.section;
+    const actions = document.createElement("div");
+    actions.className = "task-comprehension-actions";
+    [
+      { response: "green", label: "Got it", icon: "👍", className: "comprehension-green" },
+      { response: "yellow", label: "Somewhat clear", icon: "🤔", className: "comprehension-yellow" },
+      { response: "red", label: "Having difficulty", icon: "!", className: "comprehension-red" }
+    ].forEach(function (option) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "comprehension-button " + option.className + (taskResponses[taskId] === option.response ? " is-selected" : "");
+      button.dataset.response = option.response;
+      button.title = option.label + " - update Room Insights";
+      button.setAttribute("aria-label", option.label + " for task " + (index + 1));
+      const icon = document.createElement("span");
+      icon.setAttribute("aria-hidden", "true");
+      icon.textContent = option.icon;
+      button.appendChild(icon);
+      button.addEventListener("click", function () { submitTaskComprehension(task, index, option.response); });
+      actions.appendChild(button);
+    });
+    item.append(label, text, section, actions);
+    elements.learningPlanTasks.appendChild(item);
+  });
+}
+
+function taskResponseId(index) {
+  return "plan-task-" + index;
+}
+
+function submitTaskComprehension(task, index, response) {
+  const taskId = taskResponseId(index);
+  const insightsWindow = window.open("/leader?room=" + encodeURIComponent(elements.roomInput.value.trim() || "BUD-101") + "#insights", "_blank", "noopener");
+  taskResponses[taskId] = response;
+  renderLearningPlanTasks();
+  fetch("/api/task-comprehension-response", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      room_name: elements.roomInput.value.trim() || "BUD-101",
+      participant_id: PARTICIPANT_ID,
+      display_name: elements.nameInput.value.trim() || PARTICIPANT_ID,
+      task_id: taskId,
+      task_index: index,
+      task_text: task.text,
+      section: task.section,
+      response: response
+    })
+  }).then(function (responseObject) {
+    return responseObject.json();
+  }).then(function (payload) {
+    if (payload.state) renderState(payload.state);
+    if (insightsWindow) insightsWindow.focus();
+  }).catch(showOffline);
+}
+
+function taskForPage(page, pageIndex) {
+  if (!learningPlanTasks.length) return null;
+  return learningPlanTasks[Math.min(pageIndex, learningPlanTasks.length - 1)] || null;
+}
+
+function taskCompletionKey(page) {
+  const task = taskForPage(page, currentDocumentPage);
+  return task ? taskResponseId(currentDocumentPage) : page.page_id;
 }
 
 function completeCurrentTask() {
   const page = workshopPages[currentDocumentPage];
-  if (!page || completedTasks[page.page_id]) return;
-  completedTasks[page.page_id] = true;
+  if (!page) return;
+  const completionKey = taskCompletionKey(page);
+  if (completedTasks[completionKey]) return;
+  completedTasks[completionKey] = true;
   renderDocumentPage();
   postJson("/api/task-complete", {
     participant_id: PARTICIPANT_ID,
-    task_id: "task-" + page.page_id,
+    task_id: completionKey,
     page_id: page.page_id
   });
 }
@@ -290,6 +504,12 @@ function connectWorkshop() {
         delete roomParticipants[participant.identity];
         appendRoomMessage(participant.name + " left the workshop.");
         renderPresence();
+      });
+      livekitRoom.on(window.LivekitClient.RoomEvent.TrackSubscribed, function (track, publication, participant) {
+        renderRemoteMedia(track, publication, participant);
+      });
+      livekitRoom.on(window.LivekitClient.RoomEvent.TrackUnsubscribed, function (track, publication) {
+        removeMediaTrack(track, publication);
       });
       livekitRoom.on(window.LivekitClient.RoomEvent.DataReceived, function (payload, participant) {
         try {
@@ -331,6 +551,10 @@ function refreshMediaState() {
 }
 
 function renderRemoteMedia(track, publication, participant) {
+  if (publication.source === window.LivekitClient.Track.Source.Microphone) {
+    attachRemoteAudioTrack(track, publication, participant);
+    return;
+  }
   if (publication.source === window.LivekitClient.Track.Source.ScreenShareAudio) {
     const element = track.attach();
     elements.mainMedia.appendChild(element);
@@ -347,6 +571,21 @@ function renderRemoteMedia(track, publication, participant) {
   }
 }
 
+function attachRemoteAudioTrack(track, publication, participant) {
+  const existing = document.querySelector("audio[data-participant-id='" + participant.identity + "'][data-source='microphone']");
+  if (existing) return;
+  const element = track.attach();
+  element.dataset.participantId = participant.identity;
+  element.dataset.source = "microphone";
+  element.autoplay = true;
+  element.playsInline = true;
+  element.setAttribute("aria-label", (participant.name || participant.identity) + " microphone");
+  element.play().catch(function () {
+    appendRoomMessage("Click the page once to enable audio from " + (participant.name || participant.identity) + ".");
+  });
+  document.body.appendChild(element);
+}
+
 function attachRemoteCameraTrack(track, publication, participant) {
   const existing = elements.mediaStrip.querySelector("[data-participant-id='" + participant.identity + "'][data-source='camera']");
   if (existing) return;
@@ -361,6 +600,9 @@ function attachRemoteCameraTrack(track, publication, participant) {
 
 function removeMediaTrack(track, publication) {
   track.detach().forEach(function (element) { element.remove(); });
+  if (publication.source === window.LivekitClient.Track.Source.Microphone) {
+    appendRoomMessage("A participant's microphone audio disconnected.");
+  }
   if (publication.source === window.LivekitClient.Track.Source.Camera) {
     elements.mediaStatus.textContent = "Facilitator camera off";
   }
@@ -422,6 +664,7 @@ function stopTalking(reason) {
     silenceTimeout = null;
   }
   if (speechRecorder && speechRecorder.state === "recording") speechRecorder.stop();
+  stopSpeechVad();
   if (livekitRoom) livekitRoom.localParticipant.setMicrophoneEnabled(false).catch(function () {});
   if (micAnalyserFrame) {
     window.cancelAnimationFrame(micAnalyserFrame);
@@ -469,11 +712,58 @@ function startSpeechCapture(publication) {
     speechCaptureStream = stream;
     speechCaptureActive = true;
     resetSilenceTimeout();
+    startSpeechVad(stream);
     appendRoomMessage("Local Whisper capture active.");
     recordSpeechChunk();
   }).catch(function (error) {
     setConnectionStatus("Speech capture unavailable: " + error.message);
   });
+}
+
+function startSpeechVad(stream) {
+  stopSpeechVad();
+  speechVadEnabled = false;
+  if (!window.AudioContext) return;
+  speechVadContext = new window.AudioContext();
+  speechVadAnalyser = speechVadContext.createAnalyser();
+  speechVadAnalyser.fftSize = 256;
+  speechVadContext.createMediaStreamSource(stream).connect(speechVadAnalyser);
+  speechVadData = new Uint8Array(speechVadAnalyser.frequencyBinCount);
+  speechVadEnabled = true;
+  speechVadTimer = window.setInterval(function () {
+    if (!speechCaptureActive) return;
+    speechVadAnalyser.getByteFrequencyData(speechVadData);
+    let total = 0;
+    speechVadData.forEach(function (value) { total += value; });
+    const level = total / speechVadData.length / 48;
+    const now = Date.now();
+    if (level >= SPEECH_LEVEL_THRESHOLD) {
+      speechHeardInChunk = true;
+      speechLastHeardAt = now;
+    }
+    if (!speechRecorder || speechRecorder.state !== "recording") return;
+    const elapsed = now - speechChunkStartedAt;
+    if (speechHeardInChunk) {
+      if (now - speechLastHeardAt >= SPEECH_PAUSE_MS || elapsed >= SPEECH_MAX_UTTERANCE_MS) {
+        speechRecorder.stop();
+      }
+    } else if (elapsed >= SPEECH_IDLE_RECYCLE_MS) {
+      speechRecorder.stop();
+    }
+  }, SPEECH_VAD_INTERVAL_MS);
+}
+
+function stopSpeechVad() {
+  if (speechVadTimer) {
+    window.clearInterval(speechVadTimer);
+    speechVadTimer = null;
+  }
+  if (speechVadContext) {
+    speechVadContext.close().catch(function () {});
+    speechVadContext = null;
+  }
+  speechVadAnalyser = null;
+  speechVadData = null;
 }
 
 function resetSilenceTimeout() {
@@ -487,10 +777,10 @@ function recordSpeechChunk() {
   if (!speechCaptureActive) return;
   speechRecorder = new MediaRecorder(speechCaptureStream, { mimeType: "audio/webm" });
   speechRecorder.ondataavailable = function (event) {
+    if (speechVadEnabled && !speechHeardInChunk) return;
     if (event.data && event.data.size > 0) {
       const form = new Blob([event.data], { type: "audio/webm" });
       const speechSequence = ++speechChunkSequence;
-      latestSpeechSequence = speechSequence;
       const targetLanguage = elements.languageInput.value;
       fetch("/api/transcribe", {
         method: "POST",
@@ -505,10 +795,11 @@ function recordSpeechChunk() {
       }).then(function (response) {
         return response.json();
       }).then(function (payload) {
-        if (Number(payload.speech_sequence) < latestSpeechSequence) {
+        if (Number(payload.speech_sequence) < latestRenderedSequence) {
           appendRoomMessage("Older Bud response discarded because newer context is available; the earlier context remains saved.");
           return;
         }
+        latestRenderedSequence = Number(payload.speech_sequence);
         if (payload.transcript && payload.transcript.ignored) {
           appendRoomMessage("Speech ignored because it was not detected as " + languageName(elements.nativeLanguageInput.value) + ".");
           return;
@@ -532,10 +823,15 @@ function recordSpeechChunk() {
   speechRecorder.onstop = function () {
     if (speechCaptureActive) recordSpeechChunk();
   };
+  speechHeardInChunk = false;
+  speechChunkStartedAt = Date.now();
+  speechLastHeardAt = speechChunkStartedAt;
   speechRecorder.start();
-  window.setTimeout(function () {
-    if (speechRecorder && speechRecorder.state === "recording") speechRecorder.stop();
-  }, 4000);
+  if (!speechVadEnabled) {
+    window.setTimeout(function () {
+      if (speechRecorder && speechRecorder.state === "recording") speechRecorder.stop();
+    }, 4000);
+  }
 }
 
 function startMicMeter(publication) {
@@ -588,6 +884,7 @@ function setConnectionStatus(text) {
 }
 
 function appendRoomMessage(text) {
+  if (!elements.roomFeed) return;
   const item = document.createElement("div");
   item.textContent = text;
   elements.roomFeed.appendChild(item);
@@ -600,7 +897,7 @@ function currentMessages() {
 }
 
 function getState() {
-  fetch("/api/state?participant_id=" + encodeURIComponent(PARTICIPANT_ID))
+  fetch("/api/state?participant_id=" + encodeURIComponent(PARTICIPANT_ID) + "&room=" + encodeURIComponent(elements.roomInput.value.trim() || "BUD-101"))
     .then(function (response) {
       return response.json();
     })
@@ -641,9 +938,10 @@ function postJson(url, body) {
 
 function renderState(state) {
   lastState = state;
+  if (state.task_responses) taskResponses = state.task_responses;
   elements.title.textContent = "Workshop: How To Use BUD AI";
   elements.phase.textContent = state.workshop.phase;
-  elements.promptText.textContent = "Complete the Tasks specified in the document with Bud AI.";
+  if (elements.promptText) elements.promptText.textContent = "Complete the Tasks specified in the document with Bud AI.";
   renderWorkshopTimer(state.workshop_control);
 
   const understanding = state.participant && state.participant.understanding;
@@ -653,10 +951,15 @@ function renderState(state) {
   elements.comprehension.textContent = state.participant && state.participant.comprehension ? state.participant.comprehension.status : "unknown";
   renderMessages(state.private_messages);
   renderSharedMessages(state.group_messages);
+  const privateMessages = state.private_messages || [];
+  const latestPrivateMessage = privateMessages[privateMessages.length - 1];
+  if (elements.budThinking) {
+    setBudThinking(Boolean(latestPrivateMessage && latestPrivateMessage.sender === "learner"));
+  }
 }
 
 function renderWorkshopTimer(control) {
-  if (!control) return;
+  if (!control || !elements.workshopTimer) return;
   const minutes = Math.floor(control.remaining_seconds / 60).toString().padStart(2, "0");
   const seconds = (control.remaining_seconds % 60).toString().padStart(2, "0");
   elements.workshopTimer.textContent = minutes + ":" + seconds;
@@ -664,13 +967,28 @@ function renderWorkshopTimer(control) {
 }
 
 function renderSharedMessages(messages) {
+  if (!elements.sharedMessages) return;
   elements.sharedMessages.innerHTML = "";
-  messages.slice(-20).forEach(function (message) {
-    appendSharedMessage((message.sender_id || "Workshop") + ": " + message.text);
+  const recentMessages = messages.slice(-50);
+  if (!recentMessages.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "No public messages yet.";
+    elements.sharedMessages.appendChild(empty);
+    return;
+  }
+  recentMessages.forEach(function (message) {
+    const sender = message.sender_id === PARTICIPANT_ID
+      ? "You"
+      : (message.sender_display_name || message.sender_id || "Workshop");
+    appendSharedMessage(sender + ": " + message.text);
   });
 }
 
 function appendSharedMessage(text) {
+  if (!elements.sharedMessages) return;
+  const empty = elements.sharedMessages.querySelector(".empty");
+  if (empty) empty.remove();
   const item = document.createElement("div");
   item.className = "shared-message";
   item.textContent = text;
@@ -679,6 +997,7 @@ function appendSharedMessage(text) {
 }
 
 function appendCaption(text, label) {
+  if (!elements.captionList) return;
   const empty = elements.captionList.querySelector(".empty");
   if (empty) empty.remove();
   const item = document.createElement("article");
@@ -695,6 +1014,7 @@ function appendCaption(text, label) {
 }
 
 function clearCaptions() {
+  if (!elements.captionList) return;
   elements.captionList.innerHTML = "";
   const empty = document.createElement("p");
   empty.className = "empty";
@@ -708,6 +1028,7 @@ function languageName(code) {
 }
 
 function renderPresence() {
+  if (!elements.presenceList) return;
   const names = Object.keys(roomParticipants).map(function (id) { return roomParticipants[id]; });
   elements.presenceList.textContent = names.length ? names.join(", ") : "No other learners connected";
 }
@@ -718,7 +1039,7 @@ function renderMessages(messages) {
     return message.message_id !== latestDismissedMessageId;
   });
 
-  if (!visibleMessages.length) {
+  if (!visibleMessages.length && !window.learnerBudGreeting) {
     const empty = document.createElement("div");
     empty.className = "empty";
     empty.textContent = "Bud has not sent a private message yet.";
@@ -726,23 +1047,44 @@ function renderMessages(messages) {
     return;
   }
 
-  visibleMessages.forEach(function (message) {
+  const messagesToRender = window.learnerBudGreeting ? [window.learnerBudGreeting].concat(visibleMessages) : visibleMessages;
+  messagesToRender.forEach(function (message) {
     const item = document.createElement("article");
-    item.className = "message " + (message.sender === "learner" ? "message-user" : "message-bud");
-    const sender = document.createElement("span");
-    sender.className = "message-sender";
-    sender.textContent = message.sender === "learner"
+    const isLearner = message.sender === "learner";
+    item.className = "leader-bud-message " + (isLearner ? "message-user" : "message-bud");
+    const heading = document.createElement("div");
+    heading.className = "leader-bud-message-heading";
+    if (!isLearner) {
+      const avatar = document.createElement("img");
+      avatar.src = elements.budAvatar.src;
+      avatar.alt = "Bud avatar";
+      heading.appendChild(avatar);
+    }
+    const sender = document.createElement("strong");
+    sender.textContent = isLearner
       ? "You"
-      : message.message_type === "periodic_summary" ? "Bud / Check-in summary" : "Bud";
-    const text = document.createElement("div");
+      : message.message_type === "periodic_summary" ? budName() + " / Check-in summary" : budName();
+    heading.appendChild(sender);
+    const text = document.createElement("p");
     text.textContent = message.text;
-    const time = document.createElement("time");
-    time.textContent = new Date(message.created_at).toLocaleTimeString();
-    item.appendChild(sender);
+    item.appendChild(heading);
     item.appendChild(text);
-    item.appendChild(time);
     elements.messages.appendChild(item);
   });
+  elements.messages.scrollTop = elements.messages.scrollHeight;
+}
+
+function budName() {
+  const learnerName = elements.nameInput.value.trim() || "Learner";
+  return learnerName + "'s Bud";
+}
+
+function setBudThinking(isThinking) {
+  if (!elements.budThinking) return;
+  const text = elements.budThinking.querySelector("span");
+  elements.budThinking.hidden = false;
+  elements.budThinking.classList.toggle("is-thinking", isThinking);
+  if (text) text.textContent = isThinking ? "Bud is thinking..." : "Bud is here";
 }
 
 function setBusy(isBusy) {
@@ -750,6 +1092,7 @@ function setBusy(isBusy) {
   elements.observeButton.disabled = isBusy;
   document.querySelectorAll(".comprehension-button").forEach(function (button) { button.disabled = isBusy; });
   elements.form.querySelector("button").disabled = isBusy;
+  setBudThinking(isBusy);
 }
 
 function showOffline() {
