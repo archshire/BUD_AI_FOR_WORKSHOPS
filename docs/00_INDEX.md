@@ -32,6 +32,7 @@ to the document's primary purpose or the most relevant section.
 - [Consistency And Traceability Report](01_PRODUCT/06_CONSISTENCY_AND_TRACEABILITY_REPORT.md#cross-document-consistency-audit) - cross-document consistency audit.
 - [AI Partner Team Overview](01_PRODUCT/AI_PARTNER_TEAM_OVERVIEW.md#1-what-are-we-building-in-one-sentence) - concise explanation of the AI Partner concept.
 - [Quick Project Brief](01_PRODUCT/QUICK_PROJECT_BRIEF_AI_PARTNER.md#what-are-we-building) - short project overview and rationale.
+- [Workshop UI/UX And Chat Contract](01_PRODUCT/UI_UX_WORKSHOP_FLOW_AND_CHAT_CONTRACT.md#core-chat-promise) - learner/Leader chat behavior, translation display, Bud context, and privacy boundaries.
 - [Active PRD](01_PRODUCT/PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS.md#3-product-thesis) - complete current product requirements and AI Partner design thesis.
 
 ### Krystalize State And Decisions

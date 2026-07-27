@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Bud AI Facilitator</title>
-    <link rel="stylesheet" href="/styles.css?v=21">
+    <link rel="stylesheet" href="/styles_v1.css">
   </head>
   <body class="facilitator-page">
     <main class="facilitator-shell">
@@ -31,7 +31,7 @@
         </div>
         <div class="facilitator-connect-form">
           <label for="room-input">Workshop room</label>
-          <input id="room-input" value="BUD-101">
+          <input id="room-input" value="bud-demo-room">
           <label for="facilitator-native-language-input">Native language</label>
           <select id="facilitator-native-language-input">
             <option value="en">English</option>
@@ -42,7 +42,7 @@
             <option value="th">Thai</option>
           </select>
           <button class="primary-action" id="connect-button">Open facilitator room</button>
-          <button class="secondary-action" id="facilitator-microphone-button" disabled>Talk to Leader Bud</button>
+          <button class="secondary-action" id="facilitator-microphone-button" disabled>Talk to Facil-Bud</button>
         </div>
         <div class="mic-status" role="status">
           <span id="facilitator-mic-status">Microphone off</span>
@@ -77,7 +77,7 @@
         <form id="create-room-form" class="management-form">
           <label for="managed-room-name">Create or open room</label>
           <div>
-          <input id="managed-room-name" value="BUD-101" placeholder="e.g. BUD-101">
+            <input id="managed-room-name" value="bud-demo-room" placeholder="e.g. group-a">
             <button class="primary-action" type="submit">Start room</button>
           </div>
         </form>
@@ -117,19 +117,19 @@
         <div class="section-head">
           <div>
             <p class="eyebrow">ME / Facilitator</p>
-            <h2 id="facil-bud-title">Leader Bud</h2>
+            <h2 id="facil-bud-title">Facil-Bud</h2>
           </div>
-          <img class="bud-avatar" id="facil-bud-avatar" src="/assets/facil-bud-owl.jpeg" alt="Leader Bud owl">
+          <img class="bud-avatar" id="facil-bud-avatar" src="/assets/facil-bud-owl.jpeg" alt="Facil-Bud owl">
           <span class="privacy-pill">Private to teacher</span>
         </div>
         <div class="facil-bud-messages" id="facil-bud-messages" aria-live="polite">
-          <p class="empty">Leader Bud has not sent a private message yet.</p>
+          <p class="empty">Facil-Bud has not sent a private message yet.</p>
         </div>
         <form id="facil-bud-form" class="facil-bud-composer">
-          <label for="facil-bud-input">Ask Leader Bud</label>
+          <label for="facil-bud-input">Ask Facil-Bud</label>
           <div>
             <textarea id="facil-bud-input" rows="3" placeholder="Ask for a room-level summary or help with the workshop documents."></textarea>
-            <button class="primary-action" type="submit">Send to Leader Bud</button>
+            <button class="primary-action" type="submit">Send to Facil-Bud</button>
           </div>
         </form>
       </section>
@@ -187,6 +187,6 @@
       </section>
     </main>
     <script src="/vendor/livekit-client.js"></script>
-    <script src="/facilitator.js"></script>
+    <script src="/facilitator_v1.js"></script>
   </body>
 </html>

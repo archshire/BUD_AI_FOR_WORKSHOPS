@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Bud AI Topview Diagnostics</title>
+    <link rel="stylesheet" href="/topview_v1.css">
+  </head>
+  <body class="topview-page">
+    <main class="topview-shell">
+      <header class="topview-header">
+        <div>
+          <p class="topview-eyebrow">Bud AI / Development</p>
+          <h1>Topview Diagnostics</h1>
+          <p class="topview-subtitle">Live operational state for rooms, participants, and providers.</p>
+        </div>
+        <span id="last-updated">Waiting for data</span>
+      </header>
+
+      <section class="topview-cards" aria-label="System totals">
+        <article><strong id="room-count">0</strong><span>Rooms</span></article>
+        <article><strong id="participant-count">0</strong><span>Connected participants</span></article>
+        <article><strong id="transcription-count">0</strong><span>Transcriptions</span></article>
+        <article><strong id="last-total">-</strong><span>Last total latency</span></article>
+      </section>
+
+      <section class="topview-grid">
+        <section class="topview-panel" aria-labelledby="rooms-title">
+          <div class="topview-panel-head"><h2 id="rooms-title">Rooms</h2><span id="room-status">Live</span></div>
+          <div id="rooms" class="topview-list"></div>
+        </section>
+        <section class="topview-panel" aria-labelledby="providers-title">
+          <div class="topview-panel-head"><h2 id="providers-title">Providers</h2><span>Runtime</span></div>
+          <div id="providers" class="provider-list"></div>
+          <dl class="metric-list">
+            <div><dt>Last STT</dt><dd id="last-stt">-</dd></div>
+            <div><dt>Last translation</dt><dd id="last-translation">-</dd></div>
+            <div><dt>Provider errors</dt><dd id="provider-errors">0</dd></div>
+          </dl>
+        </section>
+      </section>
+
+      <section class="topview-panel" aria-labelledby="services-title">
+        <div class="topview-panel-head"><h2 id="services-title">Container health</h2><span>Readiness probes</span></div>
+        <div id="services" class="service-grid"></div>
+      </section>
+
+      <section class="topview-panel" aria-labelledby="participants-title">
+        <div class="topview-panel-head"><h2 id="participants-title">Participants</h2><span>Privacy-safe operational view</span></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Display name</th><th>Role</th><th>Room</th><th>Selected language</th><th>Microphone</th><th>Updated</th></tr></thead>
+            <tbody id="participants"></tbody>
+          </table>
+          <p id="participants-empty" class="empty">No connected participants reported yet.</p>
+        </div>
+      </section>
+
+      <section class="topview-panel" aria-labelledby="events-title">
+        <div class="topview-panel-head"><h2 id="events-title">Recent events</h2><span>No message content shown</span></div>
+        <div id="events" class="event-list"></div>
+      </section>
+    </main>
+    <script src="/topview_v1.js"></script>
+  </body>
+</html>

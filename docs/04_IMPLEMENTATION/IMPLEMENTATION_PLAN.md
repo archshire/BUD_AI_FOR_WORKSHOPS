@@ -30,6 +30,36 @@ Implementation must follow:
 - `docs/03_CONTRACTS/AI_DECISION_CONTRACT.md`
 - `docs/03_CONTRACTS/TOOL_CONTRACT.md`
 
+### Context integration status
+
+Leader Bud context is assembled by the application server. Room-bound source
+uploads and learning-plan generation use the selected room code. Once the
+Leader publishes the plan, the active source material, the Leader-edited plan,
+the current instruction, recent public/group messages, and public/group
+evidence are available to the Leader Bud prompt. Private learner-Bud content
+remains excluded. Shared messages carry room and group identity so breakout
+context can remain scoped as room-management features expand.
+
+During the prototype, permitted private Bud conversations and normalized
+workshop state are persisted to the mounted local data volume. Each Bud keeps
+its persona and privacy boundary while using this growing, partner-specific
+memory on subsequent replies. A room-scoped Markdown memory file provides a
+quick, inspectable retrieval slice; it is an optimization and convenience
+layer, not a second source of truth.
+
+Breakout assignments are now saved to the server's room state. Learners resolve
+their assigned `breakout-room-N` group and send chat/PTT events with that group
+identity. Leader Bud may use those shared, group-labelled messages for a
+breakout summary; private learner-Bud messages remain excluded.
+
+The shared-chat surface now supports a manual Talk control. One utterance is
+captured locally, transcribed by Whisper, translated by the translation service,
+and posted as original plus translation to the main room or assigned breakout
+group. Raw audio is not written to the chat record. Both Leader and learner
+interfaces also expose `CHATS (DM)`, backed by a separate `private_dm` message
+scope so direct messages remain outside shared Bud context unless a future
+explicit consent rule changes that boundary.
+
 ## MVP Scope
 
 ### Demo Identity Boundary
@@ -51,7 +81,7 @@ than production authentication.
 - Bud AI Core receiving normalized events, not LiveKit objects.
 - ME private participant support.
 - Private "Help, I'm Stuck" learner action grounded in facilitator transcript/current workshop context.
-- Private facilitator interaction through **Facil-Bud**, using the same local
+- Private leader interaction through **Leader Bud**, using the same local
   Qwen service while keeping facilitator messages facilitator-private.
 - US peer meaning repair.
 - THE ROOM facilitator synthesis and recommendations.

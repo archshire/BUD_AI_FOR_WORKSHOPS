@@ -33,6 +33,25 @@ Future Meet ──────┘
 
 The product must support genuine voice/text interaction, participant attribution, preserved original-language evidence, meaningful translation, structured context/state, bounded AI actions, application-controlled permissions, and independence from a single meeting vendor.
 
+### Bud context assembly
+
+The application server is the context boundary for every Bud. Leader Bud
+receives a room-scoped context assembled from the active Workshop Source Pack,
+the Leader-edited learning plan after publication, the current workshop
+instruction, recent public and group-shared messages from the main room and
+breakout groups, and current public/group operational evidence. Private
+learner-Bud messages are excluded. Learner Bud receives its own private
+history plus the public/shared context permitted for its current room or
+group. The server performs this filtering and assembly; the language model
+does not choose which private data it may see. Permitted Bud conversation
+memory and shared workshop state are persisted in the local workshop data
+volume, so a container restart does not erase the Bud's accumulated context.
+Breakout assignments are room state and shared messages carry their
+`breakout-room-N` group identity, allowing Leader Bud to summarize a selected
+group without receiving private learner-Bud conversations.
+When a source is absent, Bud must say it does not know rather than fill the
+gap with general assumptions.
+
 ## Alternatives
 
 ### Google Meet primary runtime

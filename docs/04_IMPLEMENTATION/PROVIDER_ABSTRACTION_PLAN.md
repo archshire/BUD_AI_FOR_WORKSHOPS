@@ -23,8 +23,10 @@ Bud should be able to start with development providers and later swap in real ST
 - **LLM/reasoning and text translation:** `Qwen/Qwen3-8B`.
 - **Voice transcription:** a separate Whisper-family STT provider.
 - **Current STT runtime:** multilingual `faster-whisper-small` with
-  `WHISPER_BEAM_SIZE=4`; `WHISPER_BEAM_SIZE=1` remains the fast comparison
-  setting.
+  `WHISPER_BEAM_SIZE=2` and configurable CPU threads. The browser uses
+  voice-activity segmentation, skips silent chunks, and passes the selected
+  native language as a language hint. `WHISPER_BEAM_SIZE=1` remains the fast
+  comparison setting.
 - **Qwen mode:** non-thinking mode for the low-latency path.
 
 Qwen3-8B is the selected default because it offers multilingual instruction following/translation, local deployment options, structured/tool-use compatibility, non-thinking mode, and an Apache 2.0 license at a more practical starting size than 24B-class alternatives. Whisper remains separate because speech recognition is a distinct audio model responsibility.
@@ -37,7 +39,7 @@ The current CPU-only demo uses `Qwen3-1.7B.Q4_K_M.gguf` through a local
 `llama-cpp-python` service on port 8790. This is a hardware-constrained
 prototype choice; the larger 8B direction remains the future benchmarked
 upgrade. The same Qwen service powers learner **Bud** and facilitator
-**Facil-Bud**, while their prompts, state targets, and privacy scopes remain
+**Leader Bud**, while their prompts, state targets, and privacy scopes remain
 separate.
 
 ## Provider Interfaces
@@ -176,7 +178,7 @@ Development providers must be clearly labeled in UI/logs when used.
 
 ## Open Decisions
 
-- Measured Whisper `small` quality/latency and whether beam size 4 should
+- Measured Whisper `small` quality/latency and whether beam size 2 should
   remain the final demo setting.
 - Whether Qwen performs all text translation or a dedicated translation provider is used for selected language pairs.
 - Whether provider calls run server-side only or mixed client/server.

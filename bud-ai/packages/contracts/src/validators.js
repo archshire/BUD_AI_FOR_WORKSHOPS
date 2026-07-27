@@ -8,7 +8,7 @@ function validateNormalizedEvent(event) {
   requireOneOf(event.type, EVENT_TYPES, "event.type");
   requireString(event.occurred_at, "event.occurred_at");
   requireString(event.received_at, "event.received_at");
-  requireOneOf(event.privacy_scope, PRIVACY_SCOPES.slice(0, 3), "event.privacy_scope");
+  requireOneOf(event.privacy_scope, PRIVACY_SCOPES, "event.privacy_scope");
   requireObject(event.payload, "event.payload");
 
   if (event.actor) {
@@ -103,7 +103,7 @@ function validateConfidence(confidence, path) {
 
 function validatePrivacyAssessment(assessment) {
   requireObject(assessment, "decision.privacy_assessment");
-  requireOneOf(assessment.source_scope, PRIVACY_SCOPES.slice(0, 3), "privacy.source_scope");
+  requireOneOf(assessment.source_scope, PRIVACY_SCOPES, "privacy.source_scope");
   requireOneOf(assessment.proposed_destination_scope, PRIVACY_SCOPES, "privacy.proposed_destination_scope");
   requireBoolean(assessment.raw_private_content_included, "privacy.raw_private_content_included");
   requireBoolean(assessment.permission_required, "privacy.permission_required");

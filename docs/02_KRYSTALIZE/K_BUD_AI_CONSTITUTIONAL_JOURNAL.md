@@ -26,7 +26,7 @@ session_id: KRYS-bud-ai-001
 project_name: Bud AI
 short_name: Bud
 created_at: 2026-07-25
-updated_at: 2026-07-25
+updated_at: 2026-07-27
 status: draft
 ```
 
@@ -2164,6 +2164,117 @@ on the actual demo hardware.
 Item 21 remains implementation-refinement work. The provider default is now
 explicit, while benchmark results remain an acceptance gate.
 
+### Session CJ-067
+
+```yaml
+session_id: CJ-067
+date: 2026-07-26
+trigger: Human approved incorporating the focused Claude microphone improvements into better-workshop.
+scope: Implementation refinement for local speech capture and realtime voice communication.
+authority: human implementation instruction
+```
+
+#### Implemented Outcome
+
+The active `better-workshop` path now uses local faster-whisper `small` with
+beam size 2 by default and configurable CPU threads. Browser voice-activity
+detection closes an utterance after a sustained pause, skips silent chunks,
+and caps a continuous talk turn at 15 seconds. The selected native language is
+sent to Whisper as a language hint; a short-chunk language-detection mismatch
+does not silently discard the utterance. Remote LiveKit microphone tracks are
+subscribed to and played by connected clients, while raw audio remains outside
+the session log.
+
+#### Rationale
+
+These changes reduce unnecessary STT calls and stale or misclassified short
+chunks without introducing a hosted STT dependency. Remote voice playback
+supports ordinary workshop communication, while local track capture remains a
+separate, bounded Bud transcription path. Groq was intentionally not adopted;
+local Whisper remains the default for privacy, predictable deployment, and the
+low-latency prototype boundary.
+
+#### Progress
+
+The implementation is integrated and automated tests pass. Actual latency and
+recognition quality remain hardware-dependent acceptance measurements.
+
+### Session CJ-068
+
+```yaml
+session_id: CJ-068
+date: 2026-07-27
+trigger: Human approved locking the separation between Qwen reasoning and Bud personas.
+scope: Learner Bud and Leader Bud behavior contracts, grounding, privacy, and UI identity.
+authority: human clarification
+```
+
+#### Locked Outcome
+
+Qwen is the local reasoning provider, not the Bud identity, authority, or
+source of truth. Learner Bud and Leader Bud are distinct personas with
+dedicated behavior contracts. The application selects the persona, supplies
+only permitted context, and validates grounding, privacy, uncertainty,
+freshness, and allowed actions before displaying or applying a result.
+
+When the supplied evidence is insufficient, Bud must say it does not know and
+ask one concise clarifying question or choose `WAIT`/`NO_ACTION`. Generic Qwen
+completion is never accepted as workshop truth.
+
+#### Rationale
+
+This preserves Qwen's useful reasoning capability while preventing provider
+output from silently defining role, authority, privacy, or workshop context.
+It also prevents Learner Bud and Leader Bud from collapsing into one
+ambiguous assistant in the UI or in the behavior contract.
+
+#### Implementation Trace
+
+The contracts are implemented in:
+
+- `bud-ai/apps/server/src/config/learner-bud-config.js`
+- `bud-ai/apps/server/src/config/leader-bud-config.js`
+- `bud-ai/apps/server/src/index.js`
+
+The UI must display the two private surfaces as distinct Bud identities.
+
+### Session CJ-069
+
+```yaml
+session_id: CJ-069
+date: 2026-07-27
+trigger: Human requested clarification of multilingual common-chat behavior before learner UI design.
+scope: Shared chat, original/translation display, push-to-talk, Bud context access, and privacy.
+authority: human clarification
+```
+
+#### Locked Outcome
+
+Learners and the Leader may contribute to common-room or assigned-group chat in
+their selected native language. The application preserves the original,
+creates recipient-specific intelligible translations, and displays original
+and translation as distinct content. Completed shared events enter the
+permitted room/group Bud contexts. Private Bud conversations do not enter
+shared context automatically.
+
+Push-to-talk and typed messages use the same normalized shared-event path.
+Translation or reasoning may complete asynchronously, but failures remain
+visible and never create invented replacement text.
+
+#### Rationale
+
+This makes multilingual participation practical while preserving evidence of
+what was actually said. It also defines why Bud can remain context-aware: Bud
+receives permitted normalized workshop interaction, not unrestricted private
+conversation or an opaque stream of model-generated translations.
+
+#### Implementation Trace
+
+The design authority is
+`docs/01_PRODUCT/UI_UX_WORKSHOP_FLOW_AND_CHAT_CONTRACT.md`. The event authority
+is `docs/03_CONTRACTS/NORMALIZED_EVENT_CONTRACT.md`, and the product requirement
+is PRD `FR-LANG-006`.
+
 ## Clarification Rationale Tracking
 
 Use this section to preserve cognitive traversal lineage.
@@ -2246,6 +2357,7 @@ Record why a clarification became locked, deferred, accepted as uncertainty, or 
 | RR-018 | AI Partner design thesis | clarified | The human explicitly distinguished bounded AI partner agency from passive tool behavior and named the human friction Bud is intended to reduce. | human clarification / KRYSTALIZE session CJ-062 | LT-052, DEP-022 |
 | RR-019 | Proactive learner and facilitator behavior | clarified | Periodic learner summaries and automatic aggregate room reports were accepted as expressions of the partner thesis and documented with privacy and evidence limits. | human clarification / implementation refinement / CJ-062 | LT-053, LT-054, DEP-023 |
 | RR-020 | Live-vid media policy | clarified | The human approved one main media space, one active screen share, optional facilitator camera presence, permission-controlled participant sharing, and no AI vision or media recording in this build. | human clarification / KRYSTALIZE session CJ-063 | LT-020, LT-055 through LT-064 |
+| RR-021 | Qwen/provider and Bud persona boundary | clarified | The human approved Qwen as the reasoning engine while Learner Bud and Leader Bud remain distinct bounded personas. The application owns context selection, privacy, grounding, uncertainty, freshness, and allowed actions. | human clarification / KRYSTALIZE session CJ-068 | LT-074 |
 
 ## Deferred Issues
 
@@ -2280,6 +2392,7 @@ Governance notes record authority-relevant context without creating new authorit
 | GN-005 | The complete future clarification queue is dependency-ordered, with the WorkshopModel authority decision first. | CG-016 through CG-024, COR-001 | The human project owner controls priority; the ranking protects cross-document consistency without finalizing the underlying decisions. | Begin the next clarification pass with CG-016 and maintain one active question at a time. |
 | GN-006 | The PRD must show its evolution from AREN baseline through KRYSTALIZE to human-approved stabilization. | PRD Evolution Record | The human project owner controls final PRD approval; historical baseline and unresolved meaning must remain traceable. | Do not replace the original baseline or label Part 3 final before the relevant gates are settled. |
 | GN-007 | Bud's agency is bounded partnership, not autonomous authority. | LT-052 | Bud may proactively support a shared workshop goal, but privacy, evidence, participant agency, and facilitator authority remain controlling boundaries. | Preserve the distinction in product messaging, UI behavior, and demo claims. |
+| GN-008 | Qwen is not a persona or authority layer. | LT-074 | The application owns context selection, privacy, grounding, and allowed actions; persona contracts shape provider responses. | Keep Learner Bud and Leader Bud contracts separate and traceable. |
 
 ## Major Constitutional Shifts
 
@@ -2292,7 +2405,9 @@ Use for significant changes in project intent, philosophy, jurisdiction, accepte
 | MCS-003 | 2026-07-26 | Workshop Source Pack grounding clarified. | Bud's shared grounding was described mainly as prompts, transcripts, and normalized workshop events; facilitator materials had no defined lifecycle or evidence boundary. | The facilitator may upload approved PPTX, PDF, or DOCX material, or import an explicitly exported Google Slides file. One versioned, workshop-scoped Source Pack becomes shared grounding after facilitator activation. Bud preserves source locations and never absorbs private learner-Bud content automatically. | This gives every Bud a common facilitator-led reference point, enriches grounded support, and prevents answers from drifting away from the workshop's actual materials. | CJ-064, LT-065 through LT-070 |
 | MCS-004 | 2026-07-26 | Native-language input boundary clarified. | The setup language selector only described displayed translation, while speech input was accepted without a participant-selected language boundary. | Participant and facilitator setup now separates native input language from Translate to. Speech detected in another supported language is visibly ignored and does not enter translation, workshop evidence, or AI reasoning. | This prevents accidental cross-language audio from contaminating shared workshop context while preserving multilingual display translation. | LT-071 |
 | MCS-005 | 2026-07-26 | Ambient microphone capture replaced with bounded talk turns. | The microphone control published audio and left the recorder loop running after one activation, making Bud effectively ambient-listening. | Participants and facilitators explicitly start and stop a talk turn. The active button says `Stop talking`, and 15 seconds without meaningful audio ends the turn automatically. | Explicit capture makes agency, privacy, processing cost, and the transcription boundary visible while keeping live speech available when requested. | LT-072 |
-| MCS-006 | 2026-07-26 | Current multilingual speech/translation configuration expanded. | The prototype used Whisper `base` and documented five language options. | The prototype uses multilingual faster-whisper `small` with beam size 4 by default, supports Thai through the NLLB translation path, and retains beam size 1 as a latency comparison. | This raises likely recognition quality and expands the multilingual demo while preserving a configurable low-latency fallback and separate STT/translation responsibilities. | CJ-066, LT-043, LT-071 |
+| MCS-006 | 2026-07-26 | Current multilingual speech/translation configuration expanded. | The prototype used Whisper `base` and documented five language options. | The prototype uses multilingual faster-whisper `small`, supports Thai through the NLLB translation path, and retains a configurable low-latency comparison setting. | This raises likely recognition quality and expands the multilingual demo while preserving separate STT/translation responsibilities. | CJ-066, CJ-067, LT-043, LT-071 |
+| MCS-007 | 2026-07-27 | Bud persona/provider boundary clarified. | Qwen behavior and Bud identity were described together in provider prompts, leaving role separation implicit. | Qwen is the reasoning provider; Learner Bud and Leader Bud are explicit, separate behavior contracts. The application supplies permitted context and validates outputs before display/action. | This prevents generic model completions from becoming workshop truth and makes role-specific behavior, privacy, and uncertainty auditable. | CJ-068, LT-074 |
+| MCS-008 | 2026-07-27 | Multilingual common-chat context clarified. | Chat translation and Bud awareness were described as separate capabilities without a single recipient and privacy contract. | Common-room/group messages preserve the original and recipient-specific translations, and permitted Buds receive the normalized shared event while private Bud conversations remain private. | This lets participants collaborate across languages while giving Buds the shared context needed for useful support without collapsing public and private conversation. | CJ-069, LT-075 |
 
 ## Traceability Index
 
@@ -2345,3 +2460,5 @@ Use this section to preserve machine/human-readable traceability.
 | TR-043 | CJ-015, CJ-032 | Active native-platform PRD | `PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS.md` | Restored as the active PRD after the unresolved Zoom-first candidate was retired. |
 | TR-044 | CJ-031, CJ-032 | Zoom-first PRD candidate | `docs/archive/PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS_V2_ZOOM_FIRST_STALE.md` | Retained as stale traceability history; it is not an active PRD or a completed KRYSTALIZE decision. |
 | TR-051 | CJ-064 | LT-065 through LT-070 | `docs/01_PRODUCT/PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS.md`, `docs/03_CONTRACTS/STATE_MODEL_CONTRACT.md`, `docs/04_IMPLEMENTATION/ARCHITECTURE.md` | Workshop Source Pack is the shared facilitator-approved grounding boundary for Bud. |
+| TR-052 | CJ-068 | LT-074 | `docs/01_PRODUCT/PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS.md`, `docs/01_PRODUCT/05_SYSTEM_BEHAVIOR_SPEC_v1.0_CANDIDATE.md`, `docs/04_IMPLEMENTATION/ARCHITECTURE.md`, `bud-ai/apps/server/src/config/learner-bud-config.js`, `bud-ai/apps/server/src/config/leader-bud-config.js` | Qwen reasoning is separated from role-specific Bud behavior, authority, grounding, and privacy enforcement. |
+| TR-053 | CJ-069 | LT-075 | `docs/01_PRODUCT/UI_UX_WORKSHOP_FLOW_AND_CHAT_CONTRACT.md`, `docs/03_CONTRACTS/NORMALIZED_EVENT_CONTRACT.md`, `docs/01_PRODUCT/PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS.md` | Common multilingual chat preserves original meaning, recipient translations, Bud context visibility, and private-chat boundaries. |

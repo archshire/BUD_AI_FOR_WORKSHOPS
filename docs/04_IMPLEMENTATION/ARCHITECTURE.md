@@ -10,6 +10,7 @@ and the reasons behind the principal technology choices.
 
 - [Architectural Objective](#architectural-objective)
 - [Logical Architecture](#logical-architecture)
+- [Persona and Reasoning Boundary](#persona-and-reasoning-boundary)
 - [Runtime Components](#runtime-components)
 - [Docker Compose Topology](#docker-compose-topology)
 - [Technology Choices and Rationale](#technology-choices-and-rationale)
@@ -20,7 +21,7 @@ and the reasons behind the principal technology choices.
 ## Architectural Objective
 
 Bud AI is a native, multilingual workshop runtime. It gives each learner a
-private Bud, gives the facilitator a private Facil-Bud and room-level signals,
+private Learner Bud, gives the facilitator a private Leader Bud and room-level signals,
 and preserves a shared workshop conversation through voice, text, and
 translation.
 
@@ -33,7 +34,7 @@ meeting platform or model provider.
 
 ```text
 Participant browser                Facilitator browser
- voice / text / Bud                 voice / text / Facil-Bud
+ voice / text / Learner Bud         voice / text / Leader Bud
           |                                  |
           +---------- LiveKit room ---------+
                          |
@@ -55,6 +56,50 @@ Participant browser                Facilitator browser
 Bud Core does not consume LiveKit-specific objects. The adapter translates
 platform events into the normalized event contract. The validator, not the
 model, owns state mutation and permission enforcement.
+
+## Persona and Reasoning Boundary
+
+Qwen is the local reasoning engine. It receives a role-specific system
+contract plus only the permitted workshop context and user request. It does
+not own Bud identity, privacy permissions, authoritative state, or workshop
+truth.
+
+The application selects one of two persona contracts:
+
+- `apps/server/src/config/learner-bud-config.js` defines the private Learner
+  Bud behavior: source-grounded support, gentle clarification, learner
+  correction, `unknown`, `WAIT`, and minimum intervention.
+- `apps/server/src/config/leader-bud-config.js` defines the private Leader Bud
+  behavior: room-level operational support, active Source Pack grounding,
+  concise clarification when evidence is missing, and protection of private
+  learner content.
+
+Leader Bud context is assembled with explicit boundaries. The active Source
+Pack and learning plan are authoritative workshop evidence; public main-room
+and breakout messages, room evidence, attendance evidence, and the Leader's
+private Markdown memory are additional permitted sources. Learner-private Bud
+messages and private DMs are excluded. The application bounds each source
+before sending it to Qwen so the local model's context window is not exceeded.
+
+The execution path is:
+
+```text
+permitted context + user request
+             ↓
+selected Bud persona contract
+             ↓
+Qwen reasoning provider
+             ↓
+application grounding/privacy/freshness checks
+             ↓
+private response or bounded application action
+```
+
+If the permitted context does not support an answer, the application and
+persona contract require an explicit unknown/clarification response. A generic
+Qwen completion is not accepted as workshop truth. If Qwen cannot complete a
+bounded request, the user receives a visible grounding fallback rather than an
+empty chat response.
 
 ## Runtime Components
 
@@ -87,6 +132,11 @@ LiveKit is communication infrastructure, not Bud's reasoning layer. A future
 Zoom/Meet adapter can feed the same normalized event boundary, but that is not
 an MVP dependency.
 
+Connected clients subscribe to remote microphone tracks and attach them to
+local audio playback. This permits ordinary workshop voice communication while
+the same speaker's local published track is separately captured for Bud's STT
+path. Raw microphone audio is not written to the session log.
+
 ### Live-vid media policy
 
 The `live-vid` branch has one main media space. At most one screen-share track may be active at a time. The facilitator can share by default; participant screen sharing is permission-controlled, and a second share is rejected rather than silently replacing or queueing the current share. The facilitator may stop an active participant share. The facilitator camera is optional presence media. Participant camera video is not required. Camera and screen tracks are not passed to Bud Core, are not recorded, and are not written to the event log. Bud continues to reason from permitted text and microphone transcripts only.
@@ -99,10 +149,16 @@ facilitator signals, clarification, correction, escalation, or WAIT. It does
 not directly mutate state and it must not expose private learner content to the
 facilitator without permission.
 
+Persona contracts are applied at the provider boundary after Bud Core has
+established the permitted scope. They shape Qwen's response; they do not
+replace Bud Core's decision logic or the application's authority checks.
+
 ### Local provider services
 
 - **Whisper**: multilingual faster-whisper `small` speech-to-text service on
-  port `8787`, using beam size 4 by default.
+  port `8787`, using beam size 2 and configurable CPU threads by default. The
+  browser segments talk turns with voice activity detection, skips silent
+  chunks, and sends the selected native language as a language hint.
 - **NLLB**: CTranslate2 translation service on port `8788` for English,
   Spanish, Simplified Chinese, Burmese, French, and Thai.
 - **Qwen**: local `llama-cpp-python` text response service on port `8790`.
@@ -195,14 +251,14 @@ stack.
 | LiveKit | Real-time rooms and media | Provides native room control and avoids Zoom marketplace authorization and adapter risk. |
 | faster-whisper | Local STT | Keeps workshop audio on the local server and avoids a remote transcription round trip. |
 | NLLB + CTranslate2 | Translation | Provides a dedicated multilingual translation path with model data under local control. |
-| Qwen3 local GGUF | Bud and Facil-Bud text replies | Avoids closed API latency, cost, and external data transfer in the demo. |
+| Qwen3 local GGUF | Learner Bud and Leader Bud text replies | Avoids closed API latency, cost, and external data transfer in the demo. |
 | Docker Compose | Deployment | Gives teammates one repeatable command and isolates the five runtime responsibilities. |
-| In-memory state | Prototype state | Keeps the timeboxed demo focused; durable persistence is a future requirement. |
+| Local persisted state | Prototype Bud memory | Keeps the demo simple while preserving permitted session context across container restarts; production should use a session-scoped durable store and retrieval layer. |
 
 ## Privacy And Authority Boundaries
 
 - Learner Bud conversations are private by default.
-- Facil-Bud conversations are private to the facilitator.
+- Leader Bud conversations are private to the facilitator.
 - The facilitator receives minimum-necessary operational signals, not raw
   private learner content.
 - Room-level rollups use participant-reported evidence and preserve `unknown`
@@ -218,7 +274,7 @@ stack.
 - Demo authentication is intentionally omitted; participant-bound internal
   IDs and teacher-controlled allocation provide the bounded demo admission
   flow.
-- Workshop state is in memory and is lost when the application server stops.
+- Workshop state and permitted Bud conversation memory are persisted in the mounted local data volume for the demo. The memory is still prototype-grade: it is bounded recent retrieval, not a production memory system.
 - The local stack is intended for the teacher-hosted prototype and LAN/demo
   operation, not production internet deployment.
 - The `live-vid` media path requires browser permissions and, for reliable external-network use, HTTPS/WSS and TURN/network configuration.
@@ -227,6 +283,22 @@ stack.
   capacity plan.
 
 ## Future Evolution
+
+### Efficient Bud memory
+
+For the prototype, each Bud's growing context is supported by a dedicated,
+room-scoped Markdown memory file containing a boundary header and recent
+meaningful exchanges. Structured state remains authoritative; the Markdown
+file is a fast, readable retrieval index. Source-pack material, learning
+plans, shared room messages, and normalized events remain separate
+authoritative context sources. Only bounded slices are sent to Qwen.
+
+Future builds should replace raw transcript replay with a session-scoped
+memory service: retain an append-only event log, maintain a rolling structured
+summary for each Bud, retrieve only relevant source/chat evidence, and enforce
+room, participant, group, and privacy keys at the storage layer. This will keep
+context useful over long workshops while reducing token use and preventing
+memory from crossing workshop sessions.
 
 The architecture leaves room for a cloud-hosted Bud server, a durable state
 store, stronger authentication, larger benchmarked local models, and an

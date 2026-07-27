@@ -12,6 +12,7 @@ Protocol.
 - [Product Definition](#1-product-definition)
 - [Problem](#2-problem)
 - [Product Thesis](#3-product-thesis)
+- [Bud Personas and Reasoning Boundary](#3b-bud-personas-and-reasoning-boundary)
 - [Prototype Objective](#4-prototype-objective)
 - [Success Definition](#5-success-definition)
 - [Users and Roles](#6-users-and-roles)
@@ -171,6 +172,35 @@ green/yellow/red comprehension signals, multilingual meaning repair,
 privacy-aware facilitator reports, correction handling, and explicit WAIT or
 NO_ACTION behavior when evidence is insufficient.
 
+## 3B. Bud Personas and Reasoning Boundary
+
+Qwen is the local reasoning engine. It is not the product authority and it is
+not itself the Bud persona. The application supplies Qwen with a role-specific
+behavior contract, the current permitted context, and the user's request.
+The application then owns grounding, privacy, authority, uncertainty, and
+allowed state changes before displaying or acting on the result.
+
+The prototype has two distinct Bud personas:
+
+- **Learner Bud:** the learner's private partner. It supports the learner from
+  the active Workshop Source Pack and permitted learner/shared context,
+  offers gentle clarification before diagnosis, treats silence as `unknown`,
+  respects learner corrections, and escalates only through minimum-necessary
+  learner-controlled signals.
+- **Leader Bud:** the leader's private workshop assistant. It uses approved
+  room-level evidence and the active Source Pack to help the leader monitor
+  progress, translate instructions, identify operational patterns, and decide
+  what action to take. It must not reveal private learner conversations or
+  make consequential workshop decisions for the leader.
+
+Both personas must refuse unsupported certainty. When the permitted evidence
+does not answer a question, the relevant Bud says that it does not know and
+asks one concise clarifying question, or chooses `WAIT`/`NO_ACTION`. Neither
+persona may use a generic model answer to fill a missing workshop context.
+
+This boundary is implemented through dedicated behavior contracts for the
+two personas, while Qwen remains replaceable behind the provider abstraction.
+
 ------------------------------------------------------------------------
 
 # 4. Prototype Objective
@@ -284,6 +314,11 @@ It may:
 
 It must not become the sole database, permission system, or source of
 truth.
+
+The implementation must expose Learner Bud and Leader Bud as distinct private
+surfaces with distinct names, avatars, status indicators, message histories,
+and behavior contracts. The UI must not imply that a learner is speaking to
+Leader Bud or that the leader can read a learner's private thread.
 
 ------------------------------------------------------------------------
 
@@ -501,7 +536,8 @@ Supported participants must be able to speak and produce attributable
 transcription events.
 
 **Acceptance:** A spoken substantive utterance can enter the AI pipeline
-with participant/session attribution.
+with participant/session attribution. A connected client can also hear a
+remote participant's published microphone audio through the LiveKit room.
 
 ------------------------------------------------------------------------
 
@@ -599,24 +635,51 @@ interpretation as the original statement.
 ## FR-LANG-005 --- Native-language input boundary
 
 **Requirement:** Each participant and facilitator selects a native input
-language during workshop setup. Bud uses the selection as a speech-input
-boundary: when the speech recognizer detects another supported language, the
-transcript is marked ignored and does not enter translation, workshop events,
-or AI reasoning. The selected native input language is independent from the
-language chosen for displayed translation.
+language during workshop setup. Bud passes the selection to speech recognition
+as a language hint and keeps it independent from the language chosen for
+displayed translation. Short-chunk recognizer disagreement must not silently
+delete otherwise valid speech; unsupported or genuinely ambiguous input must
+remain visibly uncertain rather than being treated as reliable evidence.
 
 **Acceptance:** A supported utterance in the selected native language enters
-the normal transcript/translation path. An utterance detected in another
-supported language produces a visible ignored state and creates no workshop
-evidence event.
+the normal transcript/translation path with participant/session attribution.
+Language-hint use and any uncertainty remain inspectable, and the system does
+not discard a short utterance solely because automatic language detection
+disagrees with the participant's selected language.
 
 ------------------------------------------------------------------------
 
-## FR-LANG-006 --- Bounded talk-to-Bud capture
+## FR-LANG-006 --- Shared multilingual chat and Bud context
+
+**Requirement:** A learner or Leader may contribute to the common room or
+assigned group in their selected native language using text or an explicit
+push-to-talk turn. The application must preserve the original message and
+create an intelligible translation for each recipient's selected display
+language. Recipients see the original and translation as distinct content;
+translation must never replace or overwrite the original.
+
+The normalized shared event is available to the Learner Buds and Leader Bud
+permitted to observe that room or group. Private Bud conversations remain
+outside shared context unless the owner explicitly permits a projection.
+Translation failure must preserve the original and show a visible unavailable
+state rather than inventing content.
+
+**Acceptance:** A learner can send a message in one supported language and a
+second learner and the Leader can each see the original plus an intelligible
+translation in their selected language. The same shared event is available to
+permitted Buds, while private Bud messages remain private.
+
+The detailed interaction and display contract is maintained in
+`UI_UX_WORKSHOP_FLOW_AND_CHAT_CONTRACT.md`; the event shape is maintained in
+`NORMALIZED_EVENT_CONTRACT.md`.
+
+------------------------------------------------------------------------
+
+## FR-LANG-008 --- Bounded talk-to-Bud capture
 
 **Requirement:** Participant and facilitator microphone input is user-triggered
 speech capture, not ambient listening. The setup control reads `Talk to Bud`
-for a participant and `Talk to Facil-Bud` for the facilitator when idle. The
+for a participant and `Talk to Leader Bud` for the facilitator when idle. The
 control changes to `Stop talking` while the turn is active. Pressing it again
 ends capture, disables the published microphone, and returns the control to its
 idle state. If no meaningful audio level is detected for 15 seconds, Bud ends
@@ -628,9 +691,15 @@ the user starts a talk turn. A manual stop and a 15-second silence stop both
 terminate the recorder loop, stop microphone publication, and preserve any
 completed transcript events without recording raw audio in the session log.
 
+The browser may close an utterance after a sustained pause and skips chunks
+with no meaningful audio. A continuous utterance is capped at 15 seconds for
+bounded latency. The selected native language is passed to STT as a hint;
+short-chunk language-detection disagreement does not silently delete the
+utterance.
+
 ------------------------------------------------------------------------
 
-## FR-LANG-007 --- Translation dispute
+## FR-LANG-009 --- Translation dispute
 
 A participant must be able to challenge or clarify a
 translation/interpretation in the supported flow.
@@ -640,7 +709,7 @@ re-evaluation rather than remaining unquestioned evidence.
 
 ------------------------------------------------------------------------
 
-## FR-LANG-008 --- System self-error hypothesis
+## FR-LANG-010 --- System self-error hypothesis
 
 When apparent misunderstanding could plausibly arise from
 STT/translation/AI transformation, the system must consider that
@@ -917,7 +986,7 @@ The report is an operational pattern signal, not a diagnosis. It must not
 include raw private Bud messages or infer a response from non-response.
 
 **Acceptance:** Opening `/facilitator` shows a current room report without the
-facilitator first asking Facil-Bud or pressing a scan button. The report remains
+facilitator first asking Leader Bud or pressing a scan button. The report remains
 aggregate-only and uses `unknown` for learners with no response.
 
 ------------------------------------------------------------------------
@@ -1221,7 +1290,7 @@ Must provide enough of:
     and stopped states;
 -   text communication;
 -   transcript/caption/translation surface;
--   bounded, internally scrollable Bud and Facil-Bud message history;
+-   bounded, internally scrollable Learner Bud and Leader Bud message history;
 -   clear distinction where necessary between original and translated
     meaning.
 
@@ -1236,6 +1305,10 @@ Must support:
 -   contextual clarification;
 -   peer-meaning question flow;
 -   permission prompts where relevant.
+-   visible identity as the learner's own Bud, not Leader Bud;
+-   grounded fallback when no active workshop material is available;
+-   concise uncertainty/clarification response when the source material does
+    not answer the question.
 
 Voice interaction with AI may be supported if stable, but text is
 sufficient for private AI responses if voice complexity threatens core
@@ -1246,9 +1319,9 @@ reliability.
 Must support:
 
 -   current workshop context;
--   a bounded, scrollable Facil-Bud conversation with an always-available
+-   a bounded, scrollable Leader Bud conversation with an always-available
     composer;
--   facilitator voice turns transcribed through the same private Facil-Bud
+-   facilitator voice turns transcribed through the same private Leader Bud
     reasoning path as typed questions;
 -   participant/group operational state sufficient for MVP;
 -   attention signals;
@@ -1256,6 +1329,11 @@ Must support:
 -   AI recommendations;
 -   indication of intervention/support status;
 -   privacy-respecting state requests.
+-   a visibly distinct Leader Bud identity and private conversation;
+-   Leader Bud behavior grounded in leader-approved room evidence and the
+    active Source Pack only;
+-   an explicit unknown/clarification response instead of unsupported room
+    facts.
 
 Avoid cluttering the prototype with unsupported pseudo-analytics.
 
@@ -1323,6 +1401,11 @@ LLM output is not automatically authoritative state mutation or
 permission.
 
 Application code validates structured output and allowed actions.
+
+Qwen is the reasoning provider, not the persona or authority layer. The
+application injects the selected Learner Bud or Leader Bud behavior contract,
+then validates grounding, privacy scope, uncertainty, freshness, and allowed
+actions before the response reaches the UI or changes state.
 
 ------------------------------------------------------------------------
 
@@ -1742,7 +1825,7 @@ future work; they are not unresolved product meaning:
 -   exact AI structured decision schema;
 -   exact bounded tool signatures;
 -   measured Whisper `small` latency/quality on the demo hardware and whether
-    beam size 4 should remain the final demo setting;
+    beam size 2 should remain the final demo setting;
 -   whether Qwen handles all text translation or selected pairs use a dedicated provider;
 -   Qwen/Whisper quantization and target hardware;
 -   turn/utterance detection thresholds;
@@ -1921,11 +2004,13 @@ Bud shows active/paused state and cannot activate autonomously. A
 reconnect preserves the prior choice but remains paused until the learner
 confirms continuation. Leaving the workshop ends the active Bud session.
 
-The MVP AI input scope remains voice and text only. The `live-vid` branch adds optional facilitator camera presence and LiveKit screen sharing as communication media, but these tracks are not part of Bud's AI input path. Participant camera video remains out of scope unless separately approved.
+The MVP AI input scope remains voice and text only. The `live-vid` branch adds optional facilitator camera presence, remote microphone playback, and LiveKit screen sharing as communication media, but camera and screen tracks are not part of Bud's AI input path. Participant camera video remains out of scope unless separately approved.
 
 Bud must prioritize context-current responses. The current prototype uses
-multilingual faster-whisper `small` with beam size 4 for voice transcription,
-with beam size 1 retained as a latency comparison setting. A slow or stale sensemaking
+multilingual faster-whisper `small` with beam size 2 for voice transcription,
+with beam size 1 retained as a latency comparison setting. Browser-side voice
+activity detection closes meaningful talk turns at pauses and suppresses silent
+chunks. A slow or stale sensemaking
 result must not be delivered after the workshop has moved on as though it
 still applies. This rule applies to the pending response, not to the
 permitted evidence that produced it: transcripts, events, and relevant

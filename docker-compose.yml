@@ -14,6 +14,8 @@ services:
       STT_HOST: 0.0.0.0
       STT_PORT: 8787
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
+      WHISPER_BEAM_SIZE: ${WHISPER_BEAM_SIZE:-2}
+      WHISPER_CPU_THREADS: ${WHISPER_CPU_THREADS:-8}
       HF_HOME: /models/huggingface
     volumes:
       - whisper-models:/models
@@ -37,10 +39,10 @@ services:
       LLM_PORT: 8790
       LLM_THREADS: ${LLM_THREADS:-12}
       QWEN_MODEL_DIR: /models/qwen
-      QWEN_MODEL_PATH: /models/qwen/${QWEN_MODEL_FILE:-Qwen3-1.7B.Q4_K_M.gguf}
-      QWEN_MODEL_URL: ${QWEN_MODEL_URL:-}
+      QWEN_MODEL_PATH: /models/qwen/${QWEN_MODEL_FILE:-Qwen3-1.7B-Q4_K_M.gguf}
+      QWEN_MODEL_URL: ${QWEN_MODEL_URL:-https://huggingface.co/ggml-org/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf?download=true}
     volumes:
-      - ${QWEN_MODEL_MOUNT:-qwen-models}:/models/qwen
+      - ${QWEN_MODEL_MOUNT:-/tmp/bud-qwen-model}:/models/qwen
 
   bud:
     build:
@@ -65,6 +67,8 @@ services:
       LLM_HOST: qwen
       LLM_PORT: 8790
       SOURCE_PACK_ROOT: /app/data/source-packs
+      BUD_STATE_FILE: /app/data/workshop-state.json
+      BUD_MEMORY_ROOT: /app/data/bud-memory
     ports:
       - "${BUD_PORT:-3002}:3002"
     volumes:

@@ -9,7 +9,7 @@ from llama_cpp import Llama
 
 MODEL_PATH = os.environ.get(
     "QWEN_MODEL_PATH",
-    "/var/tmp/bud-qwen-model/Qwen3-1.7B.Q4_K_M.gguf",
+    "/var/tmp/bud-qwen-model/Qwen3-1.7B-Q4_K_M.gguf",
 )
 PORT = int(os.environ.get("LLM_PORT", "8790"))
 HOST = os.environ.get("LLM_HOST", "127.0.0.1")

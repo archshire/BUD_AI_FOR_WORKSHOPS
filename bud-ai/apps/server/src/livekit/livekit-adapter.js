@@ -8,7 +8,7 @@ function livekitConfig(env) {
     serverUrl,
     apiKey: source.LIVEKIT_API_KEY || "",
     apiSecret: source.LIVEKIT_API_SECRET || "",
-    roomName: source.LIVEKIT_ROOM || "bud-demo-room"
+    roomName: source.LIVEKIT_ROOM || "BUD-101"
   };
 }
 

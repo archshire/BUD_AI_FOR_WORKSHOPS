@@ -28,6 +28,9 @@ LANGUAGES = {
     "th": "tha_Thai",
     "tha": "tha_Thai",
     "tha_Thai": "tha_Thai",
+    "ms": "zsm_Latn",
+    "zsm": "zsm_Latn",
+    "zsm_Latn": "zsm_Latn",
 }
 
 print("Loading local NLLB translation model", flush=True)

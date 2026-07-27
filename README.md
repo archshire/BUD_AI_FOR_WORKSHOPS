@@ -56,6 +56,17 @@ insufficient. Bud's common goal is not to replace the teacher or the learner;
 it is to help the workshop preserve enough shared meaning for people to keep
 learning and collaborating together.
 
+### Demo memory boundary
+
+For this prototype, each Bud's growing memory is reconstructed from persisted
+permitted chat and workshop state and supplied to Qwen when the Bud replies.
+This is intentionally simple demo infrastructure, not a claim of permanent
+model learning. Future builds should use a session-scoped event store,
+privacy-keyed retrieval, and rolling summaries so long workshops remain
+context-aware without replaying large raw transcripts on every request.
+The prototype also writes a room- and Bud-scoped Markdown memory file as a
+fast, human-readable retrieval index; structured state remains authoritative.
+
 ## Main Areas
 
 - [Source material](docs/00_SOURCE/) - problem statement and external brief.
@@ -108,33 +119,35 @@ From the facilitator page, choose a `.pptx`, `.pdf`, or `.docx` file in the
 **Workshop Source Pack** section and upload it. Google Slides can be exported
 as PDF or PowerPoint and uploaded through the same flow. Activate the version
 you want Bud to use. The server extracts text locally, preserves slide/page
-locations, and uses the active material as shared grounding for learner Bud
-and Facil-Bud. Uploaded Source Pack data is stored under `data/source-packs/`
+locations, and uses the active material as shared grounding for Learner Bud
+and Leader Bud. Uploaded Source Pack data is stored under `data/source-packs/`
 by default, persisted in the Docker `source-packs` volume, and intentionally
 ignored by Git.
 
-By default, Qwen uses the persistent Docker volume `qwen-models`. A clean
-checkout does not contain model weights, so either mount an existing host model
-directory:
+By default, Qwen uses the host directory `/tmp/bud-qwen-model`. A clean
+checkout does not contain model weights, so the first `make up` downloads the
+Qwen3 1.7B Q4_K_M GGUF into that directory and reuses it on later launches:
 
 ```sh
-QWEN_MODEL_MOUNT=/var/tmp/bud-qwen-model make up
+make up
 ```
 
-Use `/tmp/bud-qwen-model` when the home filesystem does not have enough space:
+The model file is `Qwen3-1.7B-Q4_K_M.gguf`. To use a different directory or
+permitted GGUF URL, override the variables explicitly:
 
 ```sh
-QWEN_MODEL_MOUNT=/tmp/bud-qwen-model make up
+QWEN_MODEL_MOUNT=/var/tmp/bud-qwen-model \
+QWEN_MODEL_FILE=Qwen3-1.7B-Q4_K_M.gguf \
+QWEN_MODEL_URL=https://example.invalid/model.gguf \
+make up
 ```
 
-If the mounted directory does not contain the configured model, set
-`QWEN_MODEL_URL` to a permitted GGUF download URL so the Qwen container can
-download it on first startup. The model filename must match
-`QWEN_MODEL_FILE` when that variable is supplied.
+The Qwen container downloads the model only when the configured file is absent.
+`make down` preserves the host model directory; `make clean` removes
+Docker-managed volumes but does not delete files from `/tmp`.
 
-`make down` stops and removes containers while preserving model volumes.
-`make clean` also removes Docker-managed model volumes. A host bind mount is
-not deleted by `make clean`.
+`make clean` removes Docker-managed volumes but does not delete files from the
+host bind mount under `/tmp`.
 
 If the local demo already occupies the default ports, use alternate host
 ports while keeping the container ports unchanged:
@@ -142,7 +155,10 @@ ports while keeping the container ports unchanged:
 ```sh
 LIVEKIT_PORT=7890 BUD_PORT=3012 \
 LIVEKIT_PUBLIC_URL=ws://127.0.0.1:7890 \
-QWEN_MODEL_MOUNT=/var/tmp/bud-qwen-model make up
+QWEN_MODEL_MOUNT=/var/tmp/bud-qwen-model \
+QWEN_MODEL_FILE=Qwen3-1.7B-Q4_K_M.gguf \
+QWEN_MODEL_URL=https://huggingface.co/ggml-org/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf?download=true \
+make up
 ```
 
 To run the stack in the background, use `make up-d`; inspect it with

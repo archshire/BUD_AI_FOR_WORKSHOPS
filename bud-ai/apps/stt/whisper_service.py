@@ -9,13 +9,14 @@ from faster_whisper import WhisperModel
 MODEL_SIZE = os.environ.get("WHISPER_MODEL", "small")
 DEVICE = os.environ.get("WHISPER_DEVICE", "cpu")
 COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "int8")
-BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "4"))
+BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "2"))
+CPU_THREADS = int(os.environ.get("WHISPER_CPU_THREADS", "8"))
 PORT = int(os.environ.get("STT_PORT", "8787"))
 HOST = os.environ.get("STT_HOST", "127.0.0.1")
 
 print("Loading faster-whisper model: %s" % MODEL_SIZE, flush=True)
-MODEL = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
-print("Whisper service ready on port %s" % PORT, flush=True)
+MODEL = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE, cpu_threads=CPU_THREADS)
+print("Whisper service ready on port %s (beam_size=%s, cpu_threads=%s)" % (PORT, BEAM_SIZE, CPU_THREADS), flush=True)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -42,12 +43,14 @@ class Handler(BaseHTTPRequestHandler):
 
         audio = self.rfile.read(length)
         print("Received %s bytes for transcription" % len(audio), flush=True)
+        language = (self.headers.get("X-Language-Hint") or "").strip().lower() or None
         suffix = ".webm" if "webm" in self.headers.get("Content-Type", "") else ".wav"
         with tempfile.NamedTemporaryFile(suffix=suffix) as source:
             source.write(audio)
             source.flush()
             segments, info = MODEL.transcribe(
                 source.name,
+                language=language,
                 beam_size=BEAM_SIZE,
                 vad_filter=True,
                 condition_on_previous_text=False,

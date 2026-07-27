@@ -53,7 +53,9 @@ const TOOL_NAMES = [
 const PRIVACY_SCOPES = [
   "public_shared",
   "group_shared",
+  "private_dm",
   "private_participant_ai",
+  "private_facilitator_ai",
   "facilitator_view"
 ];
 

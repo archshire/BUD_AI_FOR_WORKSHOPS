@@ -49,6 +49,7 @@ type NormalizedEventType =
   | "participant_left"
   | "participant_utterance"
   | "participant_message"
+  | "shared_chat_message"
   | "facilitator_instruction"
   | "peer_message"
   | "utterance_completed"
@@ -124,6 +125,39 @@ type TextMessagePayload = {
   reply_to_event_id?: string;
 };
 ```
+
+### shared_chat_message
+
+Completed text or push-to-talk contribution to a room or assigned group. The
+original is authoritative evidence for what the speaker expressed; each
+translation is a recipient-specific rendering and is never a replacement.
+
+```ts
+type SharedChatMessagePayload = {
+  message_id: string;
+  original_text: string;
+  original_language: LanguageCode;
+  audience: "room" | "group";
+  group_id?: GroupId;
+  translations: Array<{
+    target_language: LanguageCode;
+    translated_text?: string;
+    status: "pending" | "translated" | "unavailable";
+    provider?: string;
+    confidence?: Confidence;
+  }>;
+  input_mode: "text" | "push_to_talk";
+  reply_to_event_id?: string;
+  source_event_ids: string[];
+  bud_context_policy: "shared_audience_only";
+};
+```
+
+The application may emit `translation_completed` events while translations
+are being produced, but the completed shared message retains the original,
+recipient language, translation status, and source references together. A
+translation with status `unavailable` must not contain fabricated replacement
+text.
 
 ### facilitator_instruction
 
@@ -276,7 +310,7 @@ type ISODateTime = string;
 type LanguageCode = string;
 type ParticipantId = string;
 type GroupId = string;
-type PrivacyScope = "public_shared" | "group_shared" | "private_participant_ai";
+type PrivacyScope = "public_shared" | "group_shared" | "private_participant_ai" | "private_dm";
 
 type ActorRef = {
   actor_type: "participant" | "facilitator" | "bud_ai" | "system";
@@ -302,6 +336,9 @@ type EvidenceRef = {
 - Adapters must preserve original language evidence.
 - Partial speech events may be frequent; semantic reasoning should usually wait for `utterance_completed`.
 - Translation, interpretation, and correction events must remain distinguishable.
+- Shared chat events must preserve original text and expose only the room/group
+  audience to Bud contexts; private Bud events must not be promoted into shared
+  chat automatically.
 
 ## Open Decisions
 

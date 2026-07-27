@@ -22,7 +22,7 @@ Prove Bud is a bounded but genuine real-time multilingual workshop partner, not 
 The current local prototype satisfies the mandatory requirements in
 `Problem Statement (Final).pdf`:
 
-- **Both roles:** facilitator and learner views, including Facil-Bud and
+- **Both roles:** leader and learner views, including Leader Bud and
   learner-specific Bud surfaces.
 - **At least two languages:** English, Spanish, Simplified Chinese, Burmese,
   French, and Thai are configured in the local speech/translation path.
@@ -72,7 +72,7 @@ Must verify:
 - Help, I'm Stuck response remains private and grounded in workshop context.
 - Help, I'm Stuck asks privately for clarification rather than inventing an explanation when context cannot be resolved.
 - Help, I'm Stuck prioritizes the learner request and current stage/task/objective, uses facilitator context within the five-minute freshness target, and excludes unrelated older material.
-- Facilitator text question -> Facil-Bud -> local Qwen reply remains private to the facilitator and is grounded in the current workshop prompt.
+- Leader text question -> Leader Bud -> local Qwen reply remains private to the leader and is grounded in the current workshop material.
 - Adaptive check-in remains private, optional, and grounded only in observable low interaction over time.
 - Group meaning repair reaches only intended group.
 - Facilitator signal contains minimum-necessary operational projection.
@@ -184,16 +184,16 @@ Proves:
 - The report contains aggregate operational evidence, not private learner
   messages or a diagnosis.
 
-### Scene 4A - Facil-Bud Private Support
+### Scene 4A - Leader Bud Private Support
 
-The facilitator asks Facil-Bud for a concise summary or help interpreting the
-current workshop prompt.
+The leader asks Leader Bud for a concise summary or help interpreting the
+current workshop material.
 
 Proves:
 
-- The facilitator has a distinct AI surface rather than using a learner Bud.
-- Facil-Bud uses the local Qwen provider.
-- Facil-Bud content remains facilitator-private and does not become learner
+- The leader has a distinct AI surface rather than using a Learner Bud.
+- Leader Bud uses the local Qwen provider.
+- Leader Bud content remains leader-private and does not become learner
   or room evidence automatically.
 
 ### Scene 5 - Correction And Revision
@@ -240,7 +240,7 @@ The demo should tolerate:
   the session log.
 - The browser displays per-chunk STT, translation, and total pipeline timings;
   late responses with an older speech sequence are discarded and visibly noted.
-- Verify `Talk to Bud` and `Talk to Facil-Bud` require explicit activation,
+- Verify `Talk to Bud` and `Talk to Leader Bud` require explicit activation,
   stop on the button press, and auto-stop after 15 seconds without meaningful
   audio.
 

@@ -22,13 +22,15 @@ Start it from the repository root with:
 The Bud server forwards browser audio chunks here and converts completed
 transcripts into normalized `participant_utterance` and
 `utterance_completed` events. The browser-selected native language is sent as
-an input-language boundary; the Bud server discards a transcript when
-Whisper detects a different language, so it does not enter translation or AI
-reasoning. The service binds to localhost and does not send audio to a remote
-provider.
+`X-Language-Hint`, which pins Whisper's language on short recordings. Whisper's
+own language guess is not used to silently discard an utterance; the selected
+participant language remains the input boundary. The service binds to
+localhost and does not send audio to a remote provider.
 
-The prototype defaults to `WHISPER_BEAM_SIZE=4`, which considers several
-candidate decodings and can improve recognition of unclear or accented speech.
-Set `WHISPER_BEAM_SIZE=1` for a faster greedy-decoding comparison when
-benchmarking latency. The final demo setting should be validated against the
-actual hardware and varied workshop utterances.
+The prototype defaults to `WHISPER_BEAM_SIZE=2` and
+`WHISPER_CPU_THREADS=8`. Set `WHISPER_BEAM_SIZE=1` for a faster
+greedy-decoding comparison when benchmarking latency. The browser performs
+voice-activity segmentation before sending audio: sustained pauses close an
+utterance, silent chunks are skipped, and a continuous talk turn is capped at
+15 seconds. The final quality and latency setting should be validated against
+the actual hardware and varied workshop utterances.

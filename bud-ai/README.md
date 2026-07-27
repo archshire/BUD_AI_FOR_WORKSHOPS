@@ -12,7 +12,10 @@ NormalizedEvent -> Bud Core -> AiDecision -> validator -> tool -> state update
 The local demo now includes faster-whisper STT, NLLB translation, and a
 CPU-local Qwen3-1.7B quantized model for private text replies.
 Voice transcription defaults to multilingual faster-whisper `small` with
-beam size 4; `WHISPER_BEAM_SIZE=1` remains available for latency comparison.
+beam size 2 and configurable CPU threads. The browser uses bounded voice
+activity detection to submit meaningful utterances after a pause, and sends
+the selected native language as a Whisper hint. `WHISPER_BEAM_SIZE=1`
+remains available for latency comparison.
 
 ## Contents
 
@@ -59,10 +62,11 @@ The facilitator opens the room and allocates participants. Participants join
 from the root URL after allocation. The topview page is a separate diagnostic
 surface and should not be used as a workshop participant page.
 
-Use `QWEN_MODEL_MOUNT=/var/tmp/bud-qwen-model make up` to mount the existing
-local Qwen model, or use `/tmp/bud-qwen-model` when the home filesystem is
-short on space. `make down` preserves Docker model volumes; `make clean`
-removes Docker-managed volumes.
+Qwen uses `/tmp/bud-qwen-model` by default. The first `make up` downloads
+`Qwen3-1.7B-Q4_K_M.gguf` there if it is missing, and later launches reuse it.
+Override `QWEN_MODEL_MOUNT`, `QWEN_MODEL_FILE`, or `QWEN_MODEL_URL` when using a
+different host directory or permitted GGUF source. `make clean` does not delete
+the host model directory.
 
 The launcher prints the learner and facilitator URLs and writes service logs
 to `/tmp/bud-demo-logs`. Press `Ctrl+C` to stop the services it started.
@@ -78,12 +82,16 @@ To run only the speech service manually:
 /tmp/bud-stt-venv/bin/python apps/stt/whisper_service.py
 ```
 
-The browser sends short microphone chunks to the localhost Whisper service;
-Bud converts completed results into normalized utterance events. Microphone
-capture is bounded by explicit `Talk to Bud` / `Talk to Facil-Bud` controls and
-stops when the user presses `Stop talking` or after 15 seconds without
-meaningful audio. Bud and Facil-Bud message histories remain scrollable within
-bounded client panels.
+The browser sends meaningful, pause-bounded microphone utterances to the local
+Whisper service; Bud converts completed results into normalized utterance
+events. Microphone capture is bounded by explicit `Talk to Bud` /
+`Talk to Leader Bud` controls and stops when the user presses `Stop talking`,
+after a sustained pause between utterances, or after 15 seconds of continuous
+speech. The selected native language is passed to Whisper and is not rejected
+merely because short-chunk language detection disagrees. Remote LiveKit
+microphone tracks are subscribed to and played by the other workshop clients;
+raw audio is not written to the session log. Learner Bud and Leader Bud message histories
+remain scrollable within bounded client panels.
 
 ## Current Capabilities
 
@@ -106,13 +114,14 @@ bounded client panels.
 - Automatic facilitator room report on facilitator view entry, with the
   existing manual room scan retained as an explicit refresh.
 - Browser LiveKit client connection and microphone publishing controls.
+- Remote LiveKit microphone playback between connected workshop clients.
 - Local faster-whisper transcription and NLLB translation services for
   English, Spanish, Simplified Chinese, Burmese, French, and Thai.
 - Local Qwen3-1.7B text response service for private Bud questions on port
   8790; replies are grounded with the current workshop documents and run with
   Qwen3's non-thinking mode for lower latency.
-- Facil-Bud uses the same local Qwen service for facilitator-private questions;
-  learner Bud and Facil-Bud remain separate privacy scopes.
+- Leader Bud uses the same local Qwen service for leader-private questions;
+  Learner Bud and Leader Bud remain separate privacy scopes.
 
 ## Not Yet Implemented
 

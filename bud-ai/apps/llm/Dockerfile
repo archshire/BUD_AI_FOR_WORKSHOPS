@@ -15,7 +15,7 @@ ENV LLM_HOST=0.0.0.0
 ENV LLM_PORT=8790
 ENV LLM_THREADS=12
 ENV QWEN_MODEL_DIR=/models/qwen
-ENV QWEN_MODEL_PATH=/models/qwen/Qwen3-1.7B.Q4_K_M.gguf
+ENV QWEN_MODEL_PATH=/models/qwen/Qwen3-1.7B-Q4_K_M.gguf
 
 VOLUME ["/models"]
 EXPOSE 8790

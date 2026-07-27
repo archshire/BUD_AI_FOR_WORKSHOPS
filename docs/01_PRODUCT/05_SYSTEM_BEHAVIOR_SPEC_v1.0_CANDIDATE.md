@@ -14,6 +14,7 @@ downstream contracts.
 
 - [Purpose](#1-purpose)
 - [Governing Behavioral Doctrine](#2-governing-behavioral-doctrine)
+- [Persona and Model Boundary](#2a-persona-and-model-boundary)
 - [Epistemic Model](#3-epistemic-model)
 - [Authority Model](#4-authority-model)
 - [Workshop Lifecycle](#5-workshop-lifecycle)
@@ -75,6 +76,30 @@ The system follows these principles:
     consequential facilitation decisions.**
 13. **The video demonstrates the product; it must never be what makes
     the product appear to work.**
+
+## 2A. Persona and Model Boundary
+
+Qwen is the reasoning provider, not the Bud identity, authority, or source of
+truth. The application selects a role-specific behavior contract and supplies
+only the permitted context for that role.
+
+The Learner Bud contract governs private learner support: grounded help,
+gentle clarification, learner correction, `unknown`, `WAIT`, and minimum
+intervention. The Leader Bud contract governs private leader support:
+room-level operational evidence, active Source Pack grounding, concise
+clarification when evidence is missing, and protection of private learner
+content.
+
+The runtime boundary is:
+
+```text
+permitted context → persona contract → Qwen → application checks → response/action
+```
+
+The application checks grounding, privacy scope, freshness, uncertainty, and
+allowed actions. If evidence is insufficient, Bud must say it does not know
+and ask one concise clarifying question, or choose `WAIT`/`NO_ACTION`.
+Qwen's generic completion is never accepted as workshop truth.
 
 ------------------------------------------------------------------------
 

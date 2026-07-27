@@ -140,7 +140,7 @@ function sendTimerAction(action) {
 }
 
 function refreshSourcePack() {
-  const roomName = elements.roomInput.value.trim() || "BUD-101";
+  const roomName = elements.roomInput.value.trim() || "bud-demo-room";
   fetch("/api/facilitator/source-pack?room=" + encodeURIComponent(roomName))
     .then(function (response) { return response.json(); })
     .then(renderSourcePack)
@@ -166,7 +166,7 @@ function uploadSourceMaterial(event) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        room_name: elements.roomInput.value.trim() || "BUD-101",
+        room_name: elements.roomInput.value.trim() || "bud-demo-room",
         filename: file.name,
         mime_type: file.type,
         content_base64: contentBase64,
@@ -190,7 +190,7 @@ function activateSourcePack(version) {
   fetch("/api/facilitator/source-pack/activate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ room_name: elements.roomInput.value.trim() || "BUD-101", version: version })
+    body: JSON.stringify({ room_name: elements.roomInput.value.trim() || "bud-demo-room", version: version })
   })
     .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
     .then(function (result) {
@@ -466,7 +466,7 @@ function startFacilitatorMicrophone() {
       reportTopviewPresence(true, true);
       startFacilitatorMicMeter(publication);
       startFacilitatorSpeechCapture(publication);
-      appendRoomMessage("Leader Bud is listening. Press Stop talking when you are finished.");
+      appendRoomMessage("Facil-Bud is listening. Press Stop talking when you are finished.");
     })
     .catch(function (error) {
       setConnectionStatus("Microphone unavailable: " + error.message);
@@ -486,14 +486,14 @@ function stopFacilitatorTalking(reason) {
     facilitatorMicAnalyserFrame = null;
   }
   Array.prototype.forEach.call(elements.microphoneMeter.children, function (bar) { bar.classList.remove("active"); });
-  elements.microphoneButton.textContent = "Talk to Leader Bud";
+  elements.microphoneButton.textContent = "Talk to Facil-Bud";
   elements.microphoneStatus.textContent = "Microphone off";
   reportTopviewPresence(true, false);
   appendRoomMessage(reason === "silence"
-    ? "Leader Bud stopped listening after 15 seconds of silence."
+    ? "Facil-Bud stopped listening after 15 seconds of silence."
     : reason === "error"
-      ? "Leader Bud could not start microphone transcription."
-      : "Leader Bud stopped listening.");
+      ? "Facil-Bud could not start microphone transcription."
+      : "Facil-Bud stopped listening.");
 }
 
 function resetFacilitatorSilenceTimeout() {
@@ -642,7 +642,7 @@ function sendToFacilBud(event) {
 }
 
 function sendFacilBudText(text) {
-  setConnectionStatus("Leader Bud is processing...");
+  setConnectionStatus("Facil-Bud is processing...");
   fetch("/api/facilitator-message", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -650,7 +650,7 @@ function sendFacilBudText(text) {
   })
     .then(function (response) {
       return response.json().then(function (payload) {
-        if (!response.ok) throw new Error(payload.error || "Leader Bud request failed");
+        if (!response.ok) throw new Error(payload.error || "Facil-Bud request failed");
         return payload;
       });
     })
@@ -658,7 +658,7 @@ function sendFacilBudText(text) {
       renderState(payload.state || payload);
       setConnectionStatus("Connected");
     })
-    .catch(function () { setConnectionStatus("Leader Bud is unavailable"); });
+    .catch(function () { setConnectionStatus("Facil-Bud is unavailable"); });
 }
 
 function renderState(state) {
@@ -700,7 +700,7 @@ function renderFacilBudMessages(messages) {
   if (!messages.length) {
     const empty = document.createElement("p");
     empty.className = "empty";
-    empty.textContent = "Leader Bud has not sent a private message yet.";
+    empty.textContent = "Facil-Bud has not sent a private message yet.";
     elements.facilBudMessages.appendChild(empty);
     return;
   }
@@ -709,7 +709,7 @@ function renderFacilBudMessages(messages) {
     item.className = "facil-bud-message " + (message.sender === "facilitator" ? "message-user" : "message-bud");
     const sender = document.createElement("span");
     sender.className = "message-sender";
-    sender.textContent = message.sender === "facilitator" ? "You" : "Leader Bud";
+    sender.textContent = message.sender === "facilitator" ? "You" : "Facil-Bud";
     const text = document.createElement("div");
     text.textContent = message.text;
     item.appendChild(sender);
