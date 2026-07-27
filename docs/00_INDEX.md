@@ -58,6 +58,7 @@ to the document's primary purpose or the most relevant section.
 ### Demo And Testing
 
 - [Test And Demo Plan](05_DEMO_AND_TESTING/TEST_AND_DEMO_PLAN.md#problem-statement-traceability) - problem-statement coverage, demo scenes, tests, and acceptance gates.
+- [Quality Testing Guide](05_DEMO_AND_TESTING/QUALITY_TESTING_GUIDE.md#the-three-tests) - how to measure transcription and translation accuracy against recorded audio.
 
 ### Historical Archive
 

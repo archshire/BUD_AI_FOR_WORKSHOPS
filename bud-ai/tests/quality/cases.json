@@ -1,0 +1,193 @@
+[
+  {
+    "id": "en-01",
+    "set": "generated",
+    "audio": "clips/en-01.wav",
+    "language": "en",
+    "transcript": "Success criteria are the things you agree on before you build, not after.",
+    "translations": {
+      "zh": "成功标准是你在开发之前就要达成一致的东西。",
+      "my": "အောင်မြင်မှု စံနှုန်းတွေကို မတည်ဆောက်ခင် သဘောတူထားရပါမယ်။"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "en-02",
+    "set": "generated",
+    "audio": "clips/en-02.wav",
+    "language": "en",
+    "transcript": "Start with the user goal and say plainly who this is for.",
+    "translations": {
+      "zh": "先说清楚用户目标，这是为谁做的。",
+      "my": "အသုံးပြုသူရဲ့ ရည်မှန်းချက်ကနေ စပါ။"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "en-03",
+    "set": "generated",
+    "audio": "clips/en-03.wav",
+    "language": "en",
+    "transcript": "You have eight minutes for this activity.",
+    "translations": {
+      "zh": "这个活动你有八分钟时间。",
+      "my": "ဒီလှုပ်ရှားမှုအတွက် ရှစ်မိနစ် ရပါတယ်။"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "en-04",
+    "set": "generated",
+    "audio": "clips/en-04.wav",
+    "language": "en",
+    "transcript": "If you cannot name the evidence, the criterion is a wish.",
+    "translations": {
+      "zh": "如果说不出证据，那这个标准只是愿望。",
+      "my": "သက်သေကို မပြောနိုင်ရင် အဲဒါက ဆန္ဒတစ်ခုပဲ ဖြစ်ပါတယ်။"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "en-05",
+    "set": "generated",
+    "audio": "clips/en-05.wav",
+    "language": "en",
+    "transcript": "So the main problem here is really cost.",
+    "translations": {
+      "zh": "所以主要的问题其实是成本。",
+      "my": "ဒါကြောင့် အဓိကပြဿနာက ကုန်ကျစရိတ်ပါ။"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "zh-01",
+    "set": "generated",
+    "audio": "clips/zh-01.wav",
+    "language": "zh",
+    "transcript": "成功标准是你在开发之前就要达成一致的东西。",
+    "translations": {
+      "en": "Success criteria are the things you agree on before you build, not after.",
+      "my": "အောင်မြင်မှု စံနှုန်းတွေကို မတည်ဆောက်ခင် သဘောတူထားရပါမယ်။"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "zh-02",
+    "set": "generated",
+    "audio": "clips/zh-02.wav",
+    "language": "zh",
+    "transcript": "先说清楚用户目标，这是为谁做的。",
+    "translations": {
+      "en": "Start with the user goal and say plainly who this is for.",
+      "my": "အသုံးပြုသူရဲ့ ရည်မှန်းချက်ကနေ စပါ။"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "zh-03",
+    "set": "generated",
+    "audio": "clips/zh-03.wav",
+    "language": "zh",
+    "transcript": "这个活动你有八分钟时间。",
+    "translations": {
+      "en": "You have eight minutes for this activity.",
+      "my": "ဒီလှုပ်ရှားမှုအတွက် ရှစ်မိနစ် ရပါတယ်။"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "zh-04",
+    "set": "generated",
+    "audio": "clips/zh-04.wav",
+    "language": "zh",
+    "transcript": "如果说不出证据，那这个标准只是愿望。",
+    "translations": {
+      "en": "If you cannot name the evidence, the criterion is a wish.",
+      "my": "သက်သေကို မပြောနိုင်ရင် အဲဒါက ဆန္ဒတစ်ခုပဲ ဖြစ်ပါတယ်။"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "zh-05",
+    "set": "generated",
+    "audio": "clips/zh-05.wav",
+    "language": "zh",
+    "transcript": "所以主要的问题其实是成本。",
+    "translations": {
+      "en": "So the main problem here is really cost.",
+      "my": "ဒါကြောင့် အဓိကပြဿနာက ကုန်ကျစရိတ်ပါ။"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "my-01",
+    "set": "generated",
+    "audio": "clips/my-01.wav",
+    "language": "my",
+    "transcript": "အောင်မြင်မှု စံနှုန်းတွေကို မတည်ဆောက်ခင် သဘောတူထားရပါမယ်။",
+    "translations": {
+      "en": "Success criteria are the things you agree on before you build, not after.",
+      "zh": "成功标准是你在开发之前就要达成一致的东西。"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "my-02",
+    "set": "generated",
+    "audio": "clips/my-02.wav",
+    "language": "my",
+    "transcript": "အသုံးပြုသူရဲ့ ရည်မှန်းချက်ကနေ စပါ။",
+    "translations": {
+      "en": "Start with the user goal and say plainly who this is for.",
+      "zh": "先说清楚用户目标，这是为谁做的。"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "my-03",
+    "set": "generated",
+    "audio": "clips/my-03.wav",
+    "language": "my",
+    "transcript": "ဒီလှုပ်ရှားမှုအတွက် ရှစ်မိနစ် ရပါတယ်။",
+    "translations": {
+      "en": "You have eight minutes for this activity.",
+      "zh": "这个活动你有八分钟时间。"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "my-04",
+    "set": "generated",
+    "audio": "clips/my-04.wav",
+    "language": "my",
+    "transcript": "သက်သေကို မပြောနိုင်ရင် အဲဒါက ဆန္ဒတစ်ခုပဲ ဖြစ်ပါတယ်။",
+    "translations": {
+      "en": "If you cannot name the evidence, the criterion is a wish.",
+      "zh": "如果说不出证据，那这个标准只是愿望。"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "my-05",
+    "set": "generated",
+    "audio": "clips/my-05.wav",
+    "language": "my",
+    "transcript": "ဒါကြောင့် အဓိကပြဿနာက ကုန်ကျစရိတ်ပါ။",
+    "translations": {
+      "en": "So the main problem here is really cost.",
+      "zh": "所以主要的问题其实是成本。"
+    },
+    "note": "Synthetic speech (Google TTS). Parallel sentences written by Claude; have a native speaker check the Burmese before quoting these scores anywhere."
+  },
+  {
+    "id": "mine-zh-bud-intro",
+    "set": "mine",
+    "audio": "clips/mine-zh-bud-intro.m4a",
+    "language": "zh",
+    "transcript": "大家好，欢迎各位。在正式开始今天的环节之前，我想花两分钟介绍一个新事物：在本次工作坊中，每位参与者都将拥有一位协同工作的“AI 伙伴”。我希望大家了解它的功能、局限以及使用方法，以免在活动进行到一半时对它感到困惑。\n\n它旨在解决这样一个问题：在像今天这样汇聚了不同语言背景人士的场合，翻译虽然能传达字面意思，却未必能确保真正的理解。即便指令翻译得完美无缺，你也可能领会不到其中的深意；或者，你可能“听懂”了队友经翻译后的表述，却依然误解了对方的本意。而且，面对这么多参与者，我很难仅凭观察就判断出谁遇到了困难，谁又进展顺利。\n\n这正是“AI 伙伴”发挥作用的地方。它并非要取代我，也不是要取代你们彼此，而是为了帮助我们真正实现有效的沟通与理解。",
+    "translations": {
+      "en": "Hi everyone, welcome — before we dive into today's session, I want to spend two minutes on something new: each of you has an AI Partner working alongside you in this workshop. I want you to know what it does, what it doesn't do, and how to use it, so it's not a mystery halfway through.\n\nHere's the problem it's solving. In a room like this, with people speaking different languages, translation gets you words — but it doesn't always get you understanding. You can get a perfect translation of an instruction and still miss what it actually means. Or you can 'understand' a teammate's translated message and still walk away with the wrong idea of what they meant. And from where I'm sitting, with this many of you at once, I genuinely can't tell who's stuck and who's just fine by watching.\n\nThat's the gap the AI Partner fills. Not by replacing me, and not by replacing each other — it's there to help us actually reach each other."
+    },
+    "note": "Real recording: facilitator introducing the AI Partner, long form (multi-paragraph)."
+  }
+]
