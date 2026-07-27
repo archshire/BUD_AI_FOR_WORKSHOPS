@@ -44,17 +44,8 @@
               <option value="fr">French</option>
               <option value="th">Thai</option>
             </select>
-            <label for="language-input">Translate to</label>
-            <select id="language-input">
-              <option value="es">Spanish</option>
-              <option value="zh">Chinese (Simplified)</option>
-              <option value="my">Burmese</option>
-              <option value="fr">French</option>
-              <option value="en">English</option>
-              <option value="th">Thai</option>
-            </select>
             <button class="primary-action" id="connect-button">Join workshop</button>
-            <button class="secondary-action" id="microphone-button" disabled>Talk to Bud</button>
+            <button class="secondary-action" id="microphone-button" disabled>Mute microphone</button>
           </div>
           <div class="mic-status" role="status" aria-label="Microphone input level">
             <span id="mic-status-text">Microphone off</span>
@@ -74,7 +65,7 @@
               <button class="icon-button" id="clear-captions" title="Clear live captions" aria-label="Clear live captions">×</button>
             </div>
             <div class="caption-list" id="caption-list" aria-live="polite" aria-atomic="false">
-              <p class="empty">Captions will appear when speech is detected.</p>
+              <p class="empty">Captions will appear when anyone in the call speaks.</p>
             </div>
           </section>
           <div class="room-feed" id="room-feed" aria-live="polite"></div>

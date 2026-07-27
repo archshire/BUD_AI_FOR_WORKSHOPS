@@ -168,6 +168,7 @@ body:not(.facilitator-page) {
 
 .scan-button { justify-self: start; margin-top: 16px; }
 .rollup-note { margin: 14px 0 0; color: var(--muted); font-size: 13px; }
+.rollup-chapter { color: var(--muted); font-size: 12px; }
 
 .rollup {
   display: grid;
@@ -299,8 +300,11 @@ h2 {
 }
 
 .presence .eyebrow { margin: 0; }
-.shared-messages { display: grid; gap: 8px; max-height: 180px; overflow: auto; }
-.shared-message { border-left: 3px solid var(--blue); background: #eef4fb; padding: 10px 12px; line-height: 1.4; }
+.shared-messages { display: grid; gap: 8px; max-height: 220px; overflow: auto; }
+.shared-message { display: grid; gap: 4px; border-left: 3px solid var(--blue); background: #eef4fb; padding: 10px 12px; line-height: 1.4; }
+.shared-message-sender { color: var(--muted); font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; }
+.shared-message-original { margin: 0; }
+.shared-message-translated { margin: 0; padding-top: 4px; border-top: 1px dashed var(--line); color: var(--muted); font-size: 13px; }
 .shared-composer { display: grid; gap: 8px; }
 .shared-composer label { color: var(--muted); font-size: 13px; font-weight: 700; }
 .shared-composer div { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; }
@@ -376,6 +380,13 @@ h2 {
   padding: 9px 12px;
 }
 
+.caption-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .caption-label {
   display: block;
   color: var(--muted);
@@ -384,10 +395,30 @@ h2 {
   text-transform: uppercase;
 }
 
+.caption-time {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 .caption p {
   margin: 4px 0 0;
   font-size: 16px;
   line-height: 1.45;
+}
+
+/* The speaker's own words, kept under the translation as a secondary line. */
+.caption p.caption-original {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Shown in the speaker's own language because the translation has not come back yet.
+   Dimmed so a reader can tell this line is still changing, rather than reading it as a
+   turn that was never going to be translated. It is replaced in place moments later. */
+.caption p.caption-untranslated {
+  opacity: 0.65;
 }
 
 .mic-meter {

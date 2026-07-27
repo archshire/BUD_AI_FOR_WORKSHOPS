@@ -16,6 +16,7 @@ services:
       WHISPER_MODEL: ${WHISPER_MODEL:-small}
       WHISPER_BEAM_SIZE: ${WHISPER_BEAM_SIZE:-2}
       WHISPER_CPU_THREADS: ${WHISPER_CPU_THREADS:-8}
+      WHISPER_NUM_WORKERS: ${WHISPER_NUM_WORKERS:-2}
       HF_HOME: /models/huggingface
     volumes:
       - whisper-models:/models
@@ -40,9 +41,21 @@ services:
       LLM_THREADS: ${LLM_THREADS:-12}
       QWEN_MODEL_DIR: /models/qwen
       QWEN_MODEL_PATH: /models/qwen/${QWEN_MODEL_FILE:-Qwen3-1.7B.Q4_K_M.gguf}
-      QWEN_MODEL_URL: ${QWEN_MODEL_URL:-}
+      # Downloaded once into the qwen-models volume on first start, then reused.
+      # Pinned to a commit so rebuilds keep getting the same weights. Override in
+      # .env to use a different quantisation, or leave empty to require a mount.
+      QWEN_MODEL_URL: ${QWEN_MODEL_URL:-https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/cc27747d7419139e44ba97777c2f2fd5dca92ee1/Qwen3-1.7B-Q4_K_M.gguf?download=true}
     volumes:
       - ${QWEN_MODEL_MOUNT:-qwen-models}:/models/qwen
+    # The service only binds its port after the weights finish loading, so a plain
+    # connection check is an accurate "model is ready" signal. The long start period
+    # covers the one-off download plus the first load.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://127.0.0.1:8790/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 600s
 
   bud:
     build:
@@ -67,9 +80,16 @@ services:
       GROQ_STT_MODEL: ${GROQ_STT_MODEL:-whisper-large-v3}
       TRANSLATION_HOST: translation
       TRANSLATION_PORT: 8788
+      TRANSLATION_PROVIDER: ${TRANSLATION_PROVIDER:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      # Translation through Groq, on the same key the speech-to-text uses.
+      GROQ_TRANSLATE_MODEL: ${GROQ_TRANSLATE_MODEL:-llama-3.3-70b-versatile}
       LLM_HOST: qwen
       LLM_PORT: 8790
       SOURCE_PACK_ROOT: /app/data/source-packs
+      # Words of live speech between check-in judgements. See bud-ai/.env.example.
+      CHECKIN_WORD_INTERVAL: ${CHECKIN_WORD_INTERVAL:-500}
     ports:
       - "${BUD_PORT:-3002}:3002"
     volumes:

@@ -534,13 +534,29 @@ function comprehensionResponseDecision(event) {
   const response = event.payload.response;
   const participantId = event.actor && event.actor.participant_id;
   const refs = [evidenceRef(event.event_id)];
+  // Which stretch of the session this answer is about. The chapter comes from the
+  // check-in the learner was reading when they answered, so the room report can name
+  // the material people struggled with rather than a fixed placeholder.
+  const chapter = event.payload.chapter || {};
+  const chapterId = chapter.chapter_id || event.payload.checkin_id;
   const patch = {
     comprehension: {
       status: response,
       checkin_id: event.payload.checkin_id,
-      recap_point_id: event.payload.recap_point_id,
+      chapter_id: chapterId,
+      recap_point_id: event.payload.recap_point_id || null,
       evidence_refs: refs,
-      reported_at: event.occurred_at
+      reported_at: event.occurred_at,
+      report: {
+        chapter_id: chapterId,
+        chapter_index: chapter.index === undefined ? null : chapter.index,
+        chapter_label: chapter.label || null,
+        chapter_summary: chapter.summary_text || null,
+        status: response,
+        recap_point_id: event.payload.recap_point_id || null,
+        evidence_refs: refs,
+        reported_at: event.occurred_at
+      }
     }
   };
   const followup = response === "yellow"

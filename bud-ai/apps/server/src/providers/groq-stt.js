@@ -54,9 +54,37 @@ function extensionFor(contentType) {
   return "wav";
 }
 
+// verbose_json reports, per segment, how confident the model is that the audio was
+// silence (no_speech_prob), how confident it is in the words (avg_logprob), and how
+// repetitive the text is (compression_ratio). Whisper only invents text where there was
+// no speech, so a segment failing any of these is noise dressed up as a sentence. The
+// local container applies the same three checks; without this the hosted path had none.
+const NO_SPEECH_THRESHOLD = Number(process.env.STT_NO_SPEECH_THRESHOLD || 0.6);
+const LOG_PROB_THRESHOLD = Number(process.env.STT_LOG_PROB_THRESHOLD || -1.0);
+// Above this, the "text" is the same phrase over and over — a decoder stuck in a loop.
+const COMPRESSION_RATIO_THRESHOLD = Number(process.env.STT_COMPRESSION_RATIO_THRESHOLD || 2.4);
+
+function usableText(payload) {
+  const segments = Array.isArray(payload.segments) ? payload.segments : null;
+  // Older or proxied endpoints may omit segments; the whole text is all there is then,
+  // and the shared hygiene filter downstream is the only guard.
+  if (!segments || !segments.length) return String(payload.text || "").trim();
+
+  const kept = segments.filter(function (segment) {
+    if (Number(segment.no_speech_prob || 0) >= NO_SPEECH_THRESHOLD) return false;
+    if (Number(segment.avg_logprob || 0) < LOG_PROB_THRESHOLD) return false;
+    if (Number(segment.compression_ratio || 0) > COMPRESSION_RATIO_THRESHOLD) return false;
+    return String(segment.text || "").trim();
+  });
+  if (kept.length !== segments.length) {
+    console.log("Groq STT dropped " + (segments.length - kept.length) + " low-confidence segment(s)");
+  }
+  return kept.map(function (segment) { return String(segment.text).trim(); }).join(" ").trim();
+}
+
 // Resolves with the same object the local Whisper service returns, so callers do not
 // need to know which provider produced it.
-async function transcribeWithGroq(audio, contentType, languageHint) {
+async function transcribeWithGroq(audio, contentType, languageHint, prompt) {
   if (!groqSttConfigured()) {
     throw new Error("GROQ_API_KEY is not set");
   }
@@ -69,6 +97,11 @@ async function transcribeWithGroq(audio, contentType, languageHint) {
   form.append("response_format", "verbose_json");
   form.append("temperature", "0");
   if (languageHint) form.append("language", languageHint);
+  // The sentence so far, so this chunk is transcribed as a continuation. Whisper
+  // treats the prompt as preceding context, which keeps punctuation, casing and
+  // domain spellings consistent across an arbitrary audio cut. Trimmed because
+  // Whisper only attends to a limited prompt window.
+  if (prompt) form.append("prompt", String(prompt).slice(-400));
 
   const response = await fetch(transcribeUrl(), {
     method: "POST",
@@ -84,7 +117,7 @@ async function transcribeWithGroq(audio, contentType, languageHint) {
 
   const payload = await response.json();
   return {
-    text: String(payload.text || "").trim(),
+    text: usableText(payload),
     language: languageHint || toLanguageCode(payload.language) || "und",
     // Groq does not report a detection confidence. A supplied hint is authoritative,
     // so report full confidence there and stay neutral when the language was guessed.

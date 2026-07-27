@@ -23,6 +23,23 @@ Start it with:
 /tmp/bud-stt-venv/bin/python bud-ai/apps/translation/nllb_service.py
 ```
 
+## Fallback Role
+
+This service is no longer the primary translator. The Bud server prefers a
+context-aware LLM translator (`apps/server/src/providers/llm-translate.js`) and
+only calls this container when that fails. NLLB translates each sentence cold,
+which degraded badly on live speech fragments; the LLM path is additionally given
+the workshop topic, the speaker's recent utterances, and matching source-pack text
+so terminology and pronouns stay consistent.
+
+Select the backend with `TRANSLATION_PROVIDER`:
+
+- `gemini` — hosted, free tier, strongest on Burmese and Chinese. Needs `GEMINI_API_KEY`.
+- `qwen` — the local Qwen container already in this stack. No key, no network, weaker.
+- `nllb` — force this service.
+
+Unset, it uses Gemini when `GEMINI_API_KEY` is present and this service otherwise.
+
 ## Licensing and Deployment
 
 Original transcript evidence is preserved separately from translation

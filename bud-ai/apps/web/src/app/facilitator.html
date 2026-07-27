@@ -42,7 +42,7 @@
             <option value="th">Thai</option>
           </select>
           <button class="primary-action" id="connect-button">Open facilitator room</button>
-          <button class="secondary-action" id="facilitator-microphone-button" disabled>Talk to Facil-Bud</button>
+          <button class="secondary-action" id="facilitator-microphone-button" disabled>Mute microphone</button>
         </div>
         <div class="mic-status" role="status">
           <span id="facilitator-mic-status">Microphone off</span>
@@ -55,6 +55,15 @@
           <div class="main-media" id="facilitator-main-media"><p class="empty">The main workshop screen will appear here.</p></div>
           <div class="media-strip" id="facilitator-media-strip" aria-label="Live workshop video"></div>
           <div class="media-actions"><button class="secondary-action" id="facilitator-camera-button" disabled>Start camera</button><button class="secondary-action" id="facilitator-screen-button" disabled>Share screen + audio</button><button class="secondary-action" id="participant-permission-button" disabled>Allow participant screen sharing</button></div>
+        </section>
+        <section class="captions" aria-labelledby="facilitator-captions-title">
+          <div class="section-head">
+            <h3 id="facilitator-captions-title">Live captions</h3>
+            <button class="icon-button" id="facilitator-clear-captions" title="Clear live captions" aria-label="Clear live captions">×</button>
+          </div>
+          <div class="caption-list" id="facilitator-caption-list" aria-live="polite" aria-atomic="false">
+            <p class="empty">Captions will appear when anyone in the call speaks.</p>
+          </div>
         </section>
         <div class="room-feed" id="room-feed" aria-live="polite"></div>
       </section>
@@ -131,6 +140,7 @@
         <section class="dashboard-panel" aria-labelledby="rollup-title">
           <div class="section-head">
             <h2 id="rollup-title">Comprehension rollup</h2>
+            <span class="rollup-chapter" id="rollup-chapter">Waiting for the first check-in</span>
             <span class="privacy-pill">Aggregate only</span>
           </div>
           <button class="secondary-action scan-button" id="scan-button">Scan room signals</button>
@@ -138,10 +148,10 @@
             <div class="rollup green"><strong id="green-count">0</strong><span>Green</span></div>
             <div class="rollup yellow"><strong id="yellow-count">0</strong><span>Yellow</span></div>
             <div class="rollup red"><strong id="red-count">0</strong><span>Red</span></div>
-            <div class="rollup unknown"><strong id="unknown-count">0</strong><span>Unknown</span></div>
+            <div class="rollup unknown"><strong id="unknown-count">0</strong><span>No answer</span></div>
           </div>
           <p class="room-report" id="room-report" aria-live="polite">Bud will provide an automatic room report when this view loads.</p>
-          <p class="rollup-note" id="most-flagged-point">No yellow/red cluster identified yet.</p>
+          <p class="rollup-note" id="most-flagged-point">No chapter has been flagged yet.</p>
         </section>
 
         <section class="dashboard-panel" aria-labelledby="evidence-title">

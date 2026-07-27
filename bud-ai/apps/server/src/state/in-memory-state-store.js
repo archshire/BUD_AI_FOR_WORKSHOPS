@@ -85,10 +85,22 @@ function createInMemoryStateStore(initialState) {
       );
     }
     if (patch.comprehension) {
-      state.participants[participantId].comprehension = Object.assign(
-        state.participants[participantId].comprehension,
-        patch.comprehension
-      );
+      const comprehension = state.participants[participantId].comprehension;
+      // A report belongs to one check-in chapter, and a learner gets one answer per
+      // chapter. Answering again replaces their earlier answer rather than adding to
+      // it, so repeated tapping cannot inflate the room's numbers.
+      const report = patch.comprehension.report;
+      const scalars = Object.assign({}, patch.comprehension);
+      delete scalars.report;
+      Object.assign(comprehension, scalars);
+      if (report && report.chapter_id) {
+        if (!Array.isArray(comprehension.reports)) comprehension.reports = [];
+        const existing = comprehension.reports.findIndex(function (entry) {
+          return entry.chapter_id === report.chapter_id;
+        });
+        if (existing === -1) comprehension.reports.push(report);
+        else comprehension.reports[existing] = report;
+      }
     }
     state.participants[participantId].updated_at = new Date().toISOString();
   }
@@ -183,7 +195,9 @@ function defaultParticipant(participantId) {
     },
     comprehension: {
       status: "unknown",
-      evidence_refs: []
+      evidence_refs: [],
+      // One entry per check-in chapter the learner has answered for.
+      reports: []
     },
     support_context: {
       open_support_requests: []

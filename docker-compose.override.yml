@@ -1,0 +1,19 @@
+# Development conveniences, applied automatically by `docker compose` on top of
+# docker-compose.yml. Nothing here belongs in a deployed stack.
+#
+# The bud image bakes the source in at build time, so without this every one-line change
+# means a full image rebuild before it can be tried. Mounting the source over the baked
+# copy removes the rebuild from the loop entirely:
+#
+#   web assets (HTML/JS/CSS) — read from disk on each request, so just refresh the browser
+#   server code             — `docker compose restart bud`, about a second
+#   dependency changes      — still needs `make build`, since node_modules is baked in
+#
+# node_modules is deliberately NOT mounted: it is installed inside the image for the
+# container's platform, and covering it with the host's copy would break the container.
+services:
+  bud:
+    volumes:
+      - ./bud-ai/apps:/app/apps
+      - ./bud-ai/packages:/app/packages
+      - ./bud-ai/tests:/app/tests

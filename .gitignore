@@ -35,3 +35,9 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# Quality-test run reports (regenerated on every run)
+bud-ai/tests/quality/reports/
+
+# Claude Code local settings
+.claude/

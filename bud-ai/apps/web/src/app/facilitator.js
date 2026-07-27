@@ -36,6 +36,8 @@ const elements = {
   sourcePackStatus: document.getElementById("source-pack-status"),
   sourcePackList: document.getElementById("source-pack-list")
   ,facilBudAvatar: document.getElementById("facil-bud-avatar")
+  ,captionList: document.getElementById("facilitator-caption-list")
+  ,clearCaptions: document.getElementById("facilitator-clear-captions")
 };
 
 let livekitRoom = null;
@@ -45,12 +47,39 @@ let facilitatorSpeechStream = null;
 let facilitatorSpeechActive = false;
 let facilitatorSpeechSequence = 0;
 let facilitatorMicAnalyserFrame = null;
-let facilitatorSilenceTimeout = null;
-const FACILITATOR_SILENCE_TIMEOUT_MS = 15000;
+
+// Live captions for the whole room, polled from the server transcript so the facilitator
+// sees every learner's speech attributed by name, not only their own.
+let captionPollTimer = null;
+let latestCaptionSequence = 0;
+// The rendered caption for each transcript entry, so a line whose translation arrived
+// after the line itself is replaced rather than drawn twice.
+let captionNodes = {};
+const CAPTION_POLL_MS = 1200;
+
+// Utterance segmentation, matching the learner app: chunks are cut where the speaker
+// pauses rather than on a fixed timer, so a chunk boundary never lands mid-word.
+let facilitatorVadContext = null;
+let facilitatorVadAnalyser = null;
+let facilitatorVadData = null;
+let facilitatorVadTimer = null;
+let facilitatorVadEnabled = false;
+let facilitatorHeardInChunk = false;
+let facilitatorLastHeardAt = 0;
+// When speech actually began inside the current chunk, as opposed to when the recorder
+// was switched on around it, so leading silence is not reported to the server as speech.
+let facilitatorFirstHeardAt = 0;
+let facilitatorChunkStartedAt = 0;
+const SPEECH_LEVEL_THRESHOLD = 0.06;
+const SPEECH_PAUSE_MS = 1100;
+const SPEECH_MAX_UTTERANCE_MS = 15000;
+const SPEECH_IDLE_RECYCLE_MS = 6000;
+const SPEECH_VAD_INTERVAL_MS = 50;
 
 function boot() {
   elements.connectButton.addEventListener("click", connectWorkshop);
-  elements.microphoneButton.addEventListener("click", startFacilitatorMicrophone);
+  elements.microphoneButton.addEventListener("click", toggleFacilitatorMicrophone);
+  elements.clearCaptions.addEventListener("click", clearCaptions);
   elements.cameraButton.addEventListener("click", toggleFacilitatorCamera);
   elements.screenButton.addEventListener("click", toggleFacilitatorScreen);
   elements.participantPermissionButton.addEventListener("click", toggleParticipantPermission);
@@ -311,6 +340,10 @@ function connectWorkshop() {
       refreshMediaState();
       reportTopviewPresence(true, false);
       renderConnectedLearners();
+      startCaptionFeed();
+      // Captions cover the whole call, so start listening on join rather than waiting
+      // for a press. The button now mutes rather than starts.
+      startFacilitatorMicrophone();
     })
     .catch(function (error) {
       setConnectionStatus(error.message);
@@ -330,10 +363,35 @@ function refreshMediaState() {
   }).catch(function () {});
 }
 
+// Somewhere off-screen to keep the audio elements for other people's voices. An audio
+// element only keeps playing while it is in the page, so voices need a home even
+// though there is nothing to look at.
+function audioSink() {
+  let sink = document.getElementById("remote-audio-sink");
+  if (!sink) {
+    sink = document.createElement("div");
+    sink.id = "remote-audio-sink";
+    sink.hidden = true;
+    document.body.appendChild(sink);
+  }
+  return sink;
+}
+
 function renderRemoteMedia(track, publication, participant) {
+  // A speaker must never be played their own voice back: it arrives a moment late and
+  // sounds like an echo. LiveKit does not normally send a track back to whoever
+  // published it, but a rejoin can leave the old copy behind, so drop it by name here.
+  const isSelf = participant.identity === "facilitator-1";
+  if (isSelf && track.kind === "audio") return;
   const element = track.attach();
   element.dataset.participantId = participant.identity;
   element.dataset.source = publication.source;
+  if (isSelf) element.muted = true;
+  if (publication.source === window.LivekitClient.Track.Source.Microphone) {
+    // Everyone else's voice, played through the hidden sink.
+    audioSink().appendChild(element);
+    return;
+  }
   if (publication.source === window.LivekitClient.Track.Source.ScreenShareAudio) {
     elements.mainMedia.appendChild(element);
     elements.mediaStatus.textContent = "Screen audio shared by " + (participant.name || participant.identity);
@@ -363,7 +421,12 @@ function toggleFacilitatorCamera() {
     elements.cameraButton.textContent = enabled ? "Start camera" : "Stop camera";
     if (!enabled) {
       const publication = livekitRoom.localParticipant.getTrackPublication(window.LivekitClient.Track.Source.Camera);
-      if (publication && publication.track) elements.mediaStrip.appendChild(publication.track.attach());
+      if (publication && publication.track) {
+        // Own-camera preview: silent, so the teacher is never played back to themselves.
+        const preview = publication.track.attach();
+        preview.muted = true;
+        elements.mediaStrip.appendChild(preview);
+      }
     }
   }).catch(function (error) { setConnectionStatus("Camera unavailable: " + error.message); });
 }
@@ -387,51 +450,77 @@ function toggleParticipantPermission() {
 }
 
 
-function startFacilitatorMicrophone() {
+function toggleFacilitatorMicrophone() {
   if (!livekitRoom) return;
   if (facilitatorSpeechActive) {
-    stopFacilitatorTalking();
-    return;
+    muteFacilitatorMicrophone();
+  } else {
+    startFacilitatorMicrophone();
   }
+}
+
+function startFacilitatorMicrophone() {
+  if (!livekitRoom) return;
   livekitRoom.localParticipant.setMicrophoneEnabled(true)
     .then(function () {
-      elements.microphoneButton.textContent = "Stop talking";
+      elements.microphoneButton.textContent = "Mute microphone";
       elements.microphoneButton.disabled = false;
-      elements.microphoneStatus.textContent = "Listening for your message...";
+      elements.microphoneStatus.textContent = "Captioning everything you say...";
       reportTopviewPresence(true, true);
       startFacilitatorMicMeter();
       startFacilitatorSpeechCapture();
-      appendRoomMessage("Facil-Bud is listening. Press Stop talking when you are finished.");
+      appendRoomMessage("Your microphone is live and being captioned for the room.");
     })
     .catch(function (error) {
       setConnectionStatus("Microphone unavailable: " + error.message);
     });
 }
 
-function stopFacilitatorTalking(reason) {
+function muteFacilitatorMicrophone() {
   facilitatorSpeechActive = false;
-  if (facilitatorSilenceTimeout) {
-    window.clearTimeout(facilitatorSilenceTimeout);
-    facilitatorSilenceTimeout = null;
-  }
   if (facilitatorSpeechRecorder && facilitatorSpeechRecorder.state === "recording") facilitatorSpeechRecorder.stop();
+  stopFacilitatorVad();
   if (livekitRoom) livekitRoom.localParticipant.setMicrophoneEnabled(false).catch(function () {});
   if (facilitatorMicAnalyserFrame) {
     window.cancelAnimationFrame(facilitatorMicAnalyserFrame);
     facilitatorMicAnalyserFrame = null;
   }
   Array.prototype.forEach.call(elements.microphoneMeter.children, function (bar) { bar.classList.remove("active"); });
-  elements.microphoneButton.textContent = "Talk to Facil-Bud";
-  elements.microphoneStatus.textContent = "Microphone off";
+  elements.microphoneButton.textContent = "Unmute microphone";
+  elements.microphoneStatus.textContent = "Microphone muted";
   reportTopviewPresence(true, false);
-  appendRoomMessage(reason === "silence" ? "Facil-Bud stopped listening after 15 seconds of silence." : "Facil-Bud stopped listening.");
+  flushFacilitatorSentence();
+  appendRoomMessage("Your microphone is muted. Learners are still captioned.");
 }
 
-function resetFacilitatorSilenceTimeout() {
-  if (facilitatorSilenceTimeout) window.clearTimeout(facilitatorSilenceTimeout);
-  facilitatorSilenceTimeout = window.setTimeout(function () {
-    if (facilitatorSpeechActive) stopFacilitatorTalking("silence");
-  }, FACILITATOR_SILENCE_TIMEOUT_MS);
+// Tells the server the facilitator has started speaking again, before any of that
+// audio has been transcribed. Without it the server cannot tell someone who has
+// finished from someone whose next words are still queued behind the transcriber.
+// Failures are ignored: at worst a held sentence is published slightly early.
+function reportFacilitatorSpeaking() {
+  fetch("/api/transcribe/speaking", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      participant_id: "facilitator-1",
+      speech_sequence: facilitatorSpeechSequence
+    })
+  }).catch(function () {});
+}
+
+// Whatever fragment the server is still holding gets closed out, so a trailing
+// half-sentence is not stranded in the buffer when the facilitator mutes.
+function flushFacilitatorSentence() {
+  fetch("/api/transcribe/flush", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      participant_id: "facilitator-1",
+      room_name: elements.roomInput.value.trim(),
+      native_language: elements.nativeLanguageInput.value,
+      target_language: elements.nativeLanguageInput.value
+    })
+  }).catch(function () {});
 }
 
 function reportTopviewPresence(connected, microphoneActive) {
@@ -472,7 +561,6 @@ function startFacilitatorMicMeter() {
       const threshold = (index + 1) / bars.length;
       bar.classList.toggle("active", level >= threshold * 0.72);
     });
-    if (facilitatorSpeechActive && level >= 0.08) resetFacilitatorSilenceTimeout();
     facilitatorMicAnalyserFrame = window.requestAnimationFrame(renderMeter);
   }
 
@@ -490,27 +578,98 @@ function startFacilitatorSpeechCapture() {
   streamPromise.then(function (stream) {
     facilitatorSpeechStream = stream;
     facilitatorSpeechActive = true;
-    resetFacilitatorSilenceTimeout();
+    startFacilitatorVad(stream);
     recordFacilitatorSpeechChunk();
   }).catch(function (error) {
     setConnectionStatus("Facilitator speech capture unavailable: " + error.message);
   });
 }
 
+// Cuts each chunk at a pause instead of on a fixed 4 second timer, so the recorder
+// restart gap lands in silence and Whisper receives whole phrases.
+function startFacilitatorVad(stream) {
+  stopFacilitatorVad();
+  facilitatorVadEnabled = false;
+  if (!window.AudioContext) return;
+  facilitatorVadContext = new window.AudioContext();
+  facilitatorVadAnalyser = facilitatorVadContext.createAnalyser();
+  facilitatorVadAnalyser.fftSize = 256;
+  facilitatorVadContext.createMediaStreamSource(stream).connect(facilitatorVadAnalyser);
+  facilitatorVadData = new Uint8Array(facilitatorVadAnalyser.frequencyBinCount);
+  facilitatorVadEnabled = true;
+
+  facilitatorVadTimer = window.setInterval(function () {
+    if (!facilitatorSpeechActive) return;
+    facilitatorVadAnalyser.getByteFrequencyData(facilitatorVadData);
+    let total = 0;
+    facilitatorVadData.forEach(function (value) { total += value; });
+    const level = total / facilitatorVadData.length / 48;
+    const now = Date.now();
+
+    if (level >= SPEECH_LEVEL_THRESHOLD) {
+      // The server is told speech has restarted as soon as it is heard, long before
+      // this chunk has been transcribed, so it can tell a facilitator who has finished
+      // a sentence from one who is still in the middle of saying it.
+      if (!facilitatorHeardInChunk) {
+        facilitatorFirstHeardAt = now;
+        reportFacilitatorSpeaking();
+      }
+      facilitatorHeardInChunk = true;
+      facilitatorLastHeardAt = now;
+    }
+
+    if (!facilitatorSpeechRecorder || facilitatorSpeechRecorder.state !== "recording") return;
+    const elapsed = now - facilitatorChunkStartedAt;
+
+    if (facilitatorHeardInChunk) {
+      if (now - facilitatorLastHeardAt >= SPEECH_PAUSE_MS || elapsed >= SPEECH_MAX_UTTERANCE_MS) {
+        facilitatorSpeechRecorder.stop();
+      }
+    } else if (elapsed >= SPEECH_IDLE_RECYCLE_MS) {
+      facilitatorSpeechRecorder.stop();
+    }
+  }, SPEECH_VAD_INTERVAL_MS);
+}
+
+function stopFacilitatorVad() {
+  if (facilitatorVadTimer) {
+    window.clearInterval(facilitatorVadTimer);
+    facilitatorVadTimer = null;
+  }
+  if (facilitatorVadContext) {
+    facilitatorVadContext.close().catch(function () {});
+    facilitatorVadContext = null;
+  }
+  facilitatorVadAnalyser = null;
+  facilitatorVadData = null;
+}
+
 function recordFacilitatorSpeechChunk() {
   if (!facilitatorSpeechActive) return;
   facilitatorSpeechRecorder = new MediaRecorder(facilitatorSpeechStream, { mimeType: "audio/webm" });
   facilitatorSpeechRecorder.ondataavailable = function (event) {
+    // Silent chunks cost a round trip and make Whisper hallucinate filler text.
+    if (facilitatorVadEnabled && !facilitatorHeardInChunk) return;
     if (!event.data || event.data.size === 0) return;
-    const speechSequence = ++facilitatorSpeechSequence;
+    const speechSequence = facilitatorSpeechSequence;
+    const uploadedAt = Date.now();
     fetch("/api/transcribe", {
       method: "POST",
       headers: {
         "Content-Type": "audio/webm",
         "X-Participant-Id": "facilitator-1",
+        "X-Room-Name": elements.roomInput.value.trim(),
         "X-Native-Language": elements.nativeLanguageInput.value,
-        "X-Target-Language": "en",
-        "X-Speech-Sequence": String(speechSequence)
+        // Listeners now translate each turn into their own language from the room
+        // transcript, so nothing needs translating on the speaker's behalf here.
+        "X-Target-Language": elements.nativeLanguageInput.value,
+        "X-Speech-Sequence": String(speechSequence),
+        // When speech started and stopped inside this chunk, as ages rather than clock
+        // times so the two machines' clocks never have to agree. The server measures
+        // the pause between sentences from these instead of from arrival times, which
+        // are stretched by however long transcription took.
+        "X-Speech-Lead-Ms": String(Math.max(0, uploadedAt - (facilitatorFirstHeardAt || uploadedAt))),
+        "X-Speech-Silence-Ms": String(Math.max(0, uploadedAt - (facilitatorLastHeardAt || uploadedAt)))
       },
       body: event.data
     }).then(function (response) {
@@ -530,14 +689,117 @@ function recordFacilitatorSpeechChunk() {
   facilitatorSpeechRecorder.onstop = function () {
     if (facilitatorSpeechActive) recordFacilitatorSpeechChunk();
   };
+  facilitatorHeardInChunk = false;
+  facilitatorChunkStartedAt = Date.now();
+  facilitatorLastHeardAt = facilitatorChunkStartedAt;
+  facilitatorFirstHeardAt = 0;
+  // Numbered as the chunk opens rather than as it uploads, so the "speaking now" ping
+  // and the audio that follows carry the same number for the server to match up.
+  facilitatorSpeechSequence += 1;
   facilitatorSpeechRecorder.start();
-  window.setTimeout(function () {
-    if (facilitatorSpeechRecorder && facilitatorSpeechRecorder.state === "recording") facilitatorSpeechRecorder.stop();
-  }, 4000);
+  if (!facilitatorVadEnabled) {
+    // No Web Audio support: fall back to fixed-length chunking.
+    window.setTimeout(function () {
+      if (facilitatorSpeechRecorder && facilitatorSpeechRecorder.state === "recording") facilitatorSpeechRecorder.stop();
+    }, 4000);
+  }
+}
+
+// Polls the room transcript so this panel shows every speaker in the call, each line
+// attributed by name and role.
+function startCaptionFeed() {
+  if (captionPollTimer) return;
+  pollCaptions();
+  captionPollTimer = window.setInterval(pollCaptions, CAPTION_POLL_MS);
+}
+
+function pollCaptions() {
+  const roomName = elements.roomInput.value.trim();
+  if (!roomName) return;
+  const query = "room=" + encodeURIComponent(roomName) +
+    "&after=" + latestCaptionSequence +
+    "&target=" + encodeURIComponent(elements.nativeLanguageInput.value);
+  fetch("/api/transcript/live?" + query)
+    .then(function (response) { return response.json(); })
+    .then(function (payload) {
+      (payload.entries || []).forEach(upsertCaption);
+      // The cursor only advances past captions the server has finished translating.
+      // Anything after that is sent again next poll and replaced in place, so a slow
+      // translation delays one line instead of holding up the whole panel.
+      const nextAfter = Number(payload.next_after);
+      if (isFinite(nextAfter) && nextAfter > latestCaptionSequence) {
+        latestCaptionSequence = nextAfter;
+      }
+    })
+    .catch(function () {});
+}
+
+// Draws a caption, or redraws one already on screen once its translation arrives.
+function upsertCaption(entry) {
+  const existing = captionNodes[entry.entry_id];
+  const item = buildCaption(entry);
+  captionNodes[entry.entry_id] = item;
+  if (existing && existing.parentNode) {
+    existing.parentNode.replaceChild(item, existing);
+    return;
+  }
+  const empty = elements.captionList.querySelector(".empty");
+  if (empty) empty.remove();
+  elements.captionList.appendChild(item);
+  elements.captionList.scrollTop = elements.captionList.scrollHeight;
+}
+
+function buildCaption(entry) {
+  const item = document.createElement("article");
+  item.className = "caption";
+  const captionHead = document.createElement("div");
+  captionHead.className = "caption-head";
+  const captionLabel = document.createElement("span");
+  captionLabel.className = "caption-label";
+  captionLabel.textContent = (entry.participant_id === "facilitator-1" ? "You" : entry.display_name) +
+    (entry.role === "facilitator" ? " (facilitator)" : " (learner)");
+  const captionTime = document.createElement("time");
+  captionTime.className = "caption-time";
+  const spokenAt = new Date(entry.created_at);
+  captionTime.dateTime = spokenAt.toISOString();
+  captionTime.textContent = spokenAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+  captionHead.appendChild(captionLabel);
+  captionHead.appendChild(captionTime);
+  item.appendChild(captionHead);
+
+  // The facilitator reads the line in their own language first, with the learner's
+  // actual words kept underneath.
+  if (entry.translated_text) {
+    const translated = document.createElement("p");
+    translated.textContent = entry.translated_text;
+    item.appendChild(translated);
+    const original = document.createElement("p");
+    original.className = "caption-original";
+    original.textContent = entry.original_text;
+    item.appendChild(original);
+  } else {
+    const original = document.createElement("p");
+    original.textContent = entry.original_text;
+    // Still with the translator: shown now in the speaker's own language rather than
+    // held back, and replaced in place when the translation lands.
+    if (entry.translation_pending) original.className = "caption-untranslated";
+    item.appendChild(original);
+  }
+
+  return item;
+}
+
+function clearCaptions() {
+  captionNodes = {};
+  elements.captionList.innerHTML = "";
+  const empty = document.createElement("p");
+  empty.className = "empty";
+  empty.textContent = "Captions will appear when anyone in the call speaks.";
+  elements.captionList.appendChild(empty);
 }
 
 function refreshState() {
-  fetch("/api/facilitator/state")
+  fetch("/api/facilitator/state?room=" + encodeURIComponent(elements.roomInput.value.trim() || "bud-demo-room"))
     .then(function (response) { return response.json(); })
     .then(renderState)
     .catch(function () { setConnectionStatus("Bud server is not reachable"); });
@@ -562,6 +824,11 @@ function renderState(state) {
   elements.title.textContent = "BUD AI Demo Workshop (Facilitator)";
   elements.phase.textContent = state.workshop.phase;
   elements.prompt.textContent = state.workshop.prompt;
+  // The counts describe the chapter learners are currently answering about, so the
+  // panel has to say which one that is.
+  document.getElementById("rollup-chapter").textContent = state.current_chapter && state.current_chapter.label
+    ? state.current_chapter.label
+    : "Waiting for the first check-in";
   document.getElementById("green-count").textContent = state.rollup.green;
   document.getElementById("yellow-count").textContent = state.rollup.yellow;
   document.getElementById("red-count").textContent = state.rollup.red;
@@ -570,8 +837,8 @@ function renderState(state) {
     ? state.room_report.text
     : "Bud will provide an automatic room report when this view loads.";
   document.getElementById("most-flagged-point").textContent = state.rollup.most_flagged_recap_point
-    ? "Most yellow/red reports: " + state.rollup.most_flagged_recap_point + " (" + state.rollup.most_flagged_count + ")"
-    : "No yellow/red cluster identified yet.";
+    ? "Hardest so far: " + state.rollup.most_flagged_recap_point + " (" + state.rollup.most_flagged_count + " flagged)"
+    : "No chapter has been flagged yet.";
   document.getElementById("evidence-total").textContent = state.evidence_summary.total;
   document.getElementById("evidence-shared").textContent = state.evidence_summary.public_shared;
   document.getElementById("evidence-private").textContent = state.evidence_summary.private_withheld;
