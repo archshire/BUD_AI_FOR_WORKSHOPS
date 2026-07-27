@@ -110,10 +110,19 @@ function createInMemoryStateStore(initialState, options) {
       );
     }
     if (patch.comprehension) {
-      state.participants[participantId].comprehension = Object.assign(
-        state.participants[participantId].comprehension,
-        patch.comprehension
-      );
+      const comprehension = state.participants[participantId].comprehension;
+      const report = patch.comprehension.report;
+      const scalars = Object.assign({}, patch.comprehension);
+      delete scalars.report;
+      Object.assign(comprehension, scalars);
+      if (report && report.chapter_id) {
+        if (!Array.isArray(comprehension.reports)) comprehension.reports = [];
+        const existing = comprehension.reports.findIndex(function (entry) {
+          return entry.chapter_id === report.chapter_id;
+        });
+        if (existing === -1) comprehension.reports.push(report);
+        else comprehension.reports[existing] = report;
+      }
     }
     state.participants[participantId].updated_at = new Date().toISOString();
     persist();
@@ -241,7 +250,8 @@ function defaultParticipant(participantId) {
     },
     comprehension: {
       status: "unknown",
-      evidence_refs: []
+      evidence_refs: [],
+      reports: []
     },
     support_context: {
       open_support_requests: []

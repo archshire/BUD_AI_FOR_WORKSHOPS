@@ -62,13 +62,24 @@ services:
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
       STT_HOST: whisper
       STT_PORT: 8787
+      STT_PROVIDER: ${STT_PROVIDER:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_STT_MODEL: ${GROQ_STT_MODEL:-whisper-large-v3}
+      STT_NO_SPEECH_THRESHOLD: ${STT_NO_SPEECH_THRESHOLD:-0.6}
+      STT_LOG_PROB_THRESHOLD: ${STT_LOG_PROB_THRESHOLD:--1.0}
+      STT_COMPRESSION_RATIO_THRESHOLD: ${STT_COMPRESSION_RATIO_THRESHOLD:-2.4}
       TRANSLATION_HOST: translation
       TRANSLATION_PORT: 8788
+      TRANSLATION_PROVIDER: ${TRANSLATION_PROVIDER:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-2.0-flash}
+      GROQ_TRANSLATE_MODEL: ${GROQ_TRANSLATE_MODEL:-llama-3.3-70b-versatile}
       LLM_HOST: qwen
       LLM_PORT: 8790
       SOURCE_PACK_ROOT: /app/data/source-packs
       BUD_STATE_FILE: /app/data/workshop-state.json
       BUD_MEMORY_ROOT: /app/data/bud-memory
+      CHECKIN_WORD_INTERVAL: ${CHECKIN_WORD_INTERVAL:-500}
     ports:
       - "${BUD_PORT:-3002}:3002"
     volumes:

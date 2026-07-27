@@ -4,6 +4,12 @@ const path = require("path");
 const { createBudRuntime } = require("./runtime");
 const { createSourcePackStore } = require("./source-pack");
 const { createBudMemoryStore } = require("./bud-memory");
+const { createTranscriptLog } = require("./transcript/transcript-log");
+const { createSentenceBuffer } = require("./transcript/sentence-buffer");
+const { cleanTranscript } = require("./providers/transcript-hygiene");
+const { groqSttConfigured, transcribeWithGroq } = require("./providers/groq-stt");
+const { llmTranslateBackend, llmTranslateConfigured, translateWithLlm } = require("./providers/llm-translate");
+const { createCheckinScheduler, formatEntries, parseVerdict } = require("./checkin/checkin-scheduler");
 const { LEADER_BUD_BEHAVIOR } = require("./config/leader-bud-config");
 const { LEARNER_BUD_BEHAVIOR } = require("./config/learner-bud-config");
 const { baseEvent } = require("../../../packages/test-fixtures/src/demo-events");
@@ -43,6 +49,178 @@ function createServer(options) {
   const mediaState = {};
   const sourcePackStore = createSourcePackStore();
   const budMemoryStore = createBudMemoryStore();
+  const transcriptLog = createTranscriptLog();
+  const speakerContext = {};
+  const recentUtterances = {};
+  const checkinScheduler = createCheckinScheduler({
+    transcriptLog: transcriptLog,
+    wordInterval: Number(process.env.CHECKIN_WORD_INTERVAL || 500),
+    judge: judgeCheckinNeeded,
+    summarise: summariseForCheckin,
+    deliver: deliverCheckin
+  });
+  const sentenceBuffer = createSentenceBuffer({
+    onRelease: function (participantId, sentenceText) {
+      const context = speakerContext[participantId];
+      if (!context || !sentenceText) return;
+      publishSentence(context, sentenceText, function () {});
+    }
+  });
+
+  function publishSentence(context, sentenceText, callback) {
+    const done = typeof callback === "function" ? callback : function () {};
+    const text = String(sentenceText || "").trim();
+    if (!text) return done({ translation: null, event: null, result: null, failed: false });
+
+    const participantId = context.participantId || config.participant_id;
+    const roomName = context.roomName || DEFAULT_ROOM;
+    const sourceLanguage = context.sourceLanguage || "en";
+    const targetLanguage = context.targetLanguage || "es";
+    const utteranceId = context.utteranceId || "utterance-" + Date.now();
+    const sourceEventIds = context.sourceEventIds || [];
+    rememberUtterance(recentUtterances, participantId, text);
+
+    function logOriginalOnly(createdAt) {
+      logSpeech({
+        room_name: roomName,
+        participant_id: participantId,
+        display_name: context.displayName || participantId,
+        role: context.role || speakerRole(participantId),
+        original_text: text,
+        original_language: sourceLanguage,
+        translated_text: null,
+        target_language: null,
+        created_at: createdAt
+      });
+    }
+
+    const completedEvent = baseEvent({
+      event_id: "stt-completed-" + Date.now(),
+      type: "utterance_completed",
+      source: context.sttProvider || "faster-whisper",
+      privacy_scope: "public_shared",
+      language: sourceLanguage,
+      actor: { actor_type: "participant", participant_id: participantId },
+      payload: {
+        utterance_id: utteranceId,
+        original_text: text,
+        original_language: sourceLanguage,
+        completion_reason: context.completionReason || "sentence_buffer",
+        source_event_ids: sourceEventIds
+      }
+    });
+    const completedResult = runtime.handleEvent(completedEvent);
+
+    if (sourceLanguage === targetLanguage) {
+      logOriginalOnly(completedEvent.occurred_at);
+      return done({ translation: null, event: completedEvent, result: completedResult, failed: false });
+    }
+
+    const snapshot = runtime.getStateSnapshot();
+    translateText(text, sourceLanguage, targetLanguage, {
+      workshopPrompt: currentPrompt(snapshot),
+      recentTurns: recentUtterances[participantId] || [],
+      sourceText: sourcePackStore.context(roomName, text).text
+    }, function (translationError, translation) {
+      if (translationError || !translation || !translation.translated_text) {
+        logOriginalOnly(completedEvent.occurred_at);
+        return done({ translation: null, event: completedEvent, result: completedResult, failed: true });
+      }
+      const translationEvent = baseEvent({
+        event_id: "translation-completed-" + Date.now(),
+        type: "translation_completed",
+        source: translation.provider,
+        privacy_scope: "public_shared",
+        language: targetLanguage,
+        actor: { actor_type: "participant", participant_id: participantId },
+        payload: {
+          utterance_id: utteranceId,
+          original_text: text,
+          original_language: sourceLanguage,
+          translated_text: translation.translated_text,
+          target_language: targetLanguage,
+          provider: translation.provider,
+          context_event_ids: [completedEvent.event_id]
+        }
+      });
+      runtime.handleEvent(translationEvent);
+      logSpeech({
+        room_name: roomName,
+        participant_id: participantId,
+        display_name: context.displayName || participantId,
+        role: context.role || speakerRole(participantId),
+        original_text: text,
+        original_language: sourceLanguage,
+        translated_text: translation.translated_text,
+        target_language: targetLanguage,
+        created_at: translationEvent.occurred_at
+      });
+      done({ translation: translation, event: completedEvent, translationEvent: translationEvent, result: completedResult, failed: false });
+    });
+  }
+
+  async function judgeCheckinNeeded(input) {
+    const reply = await askLocalBud({
+      system: "You decide whether learners in a live workshop should receive a private check-in summary right now. Answer with YES or NO on the first line, then at most one short sentence saying why. Answer YES only when the recent speech has finished a topic, moved on to a new one, or made substantial points a learner could have missed. Answer NO for greetings, logistics, small talk, unfinished explanations, or when the room is still in the middle of the same point.",
+      question: "Full workshop speech so far:\n" + formatEntries(input.fullEntries) +
+        "\n\nSpeech not yet covered by any check-in:\n" + formatEntries(input.newEntries) +
+        "\n\nShould the learners get a check-in summary now? Answer YES or NO.",
+      max_tokens: 60,
+      timeout_ms: 20000
+    });
+    if (!reply) return { needed: false, reason: "judge_unavailable" };
+    return parseVerdict(reply.text);
+  }
+
+  async function summariseForCheckin(input) {
+    const snapshot = runtime.getStateSnapshot();
+    const reply = await askLocalBud({
+      system: "You are Bud, a friendly workshop learning companion writing a private check-in for one learner. Summarise only what was actually said in the supplied speech. Do not invent workshop facts. Write two or three short sentences in English: what the room just covered, one concrete next step, and an invitation to self-report green, yellow, or red.",
+      workshopPrompt: currentPrompt(snapshot),
+      question: "Speech to summarise:\n" + formatEntries(input.newEntries),
+      max_tokens: 200,
+      timeout_ms: 25000
+    });
+    return reply ? reply.text : null;
+  }
+
+  async function deliverCheckin(input) {
+    const snapshot = runtime.getStateSnapshot();
+    const connectedLearners = Object.keys(diagnostics.connections)
+      .map(function (participantId) { return diagnostics.connections[participantId]; })
+      .filter(function (connection) {
+        return connection.role !== "facilitator" && connection.room_name === input.roomName;
+      });
+    const learnerIds = connectedLearners.length
+      ? connectedLearners.map(function (learner) { return learner.participant_id; })
+      : (snapshot.workshop.participant_ids || []).filter(function (participantId) {
+          return String(participantId).indexOf("facilitator") !== 0;
+        });
+    const createdAt = new Date().toISOString();
+    learnerIds.forEach(function (participantId, index) {
+      runtime.recordPrivateMessage({
+        message_id: "message-checkin-" + Date.now() + "-" + index,
+        target_id: participantId,
+        sender: "bud",
+        message_type: "periodic_summary",
+        text: input.summaryText,
+        language: "en",
+        provider: "local-llm",
+        checkin_id: input.chapter && input.chapter.chapter_id,
+        chapter: input.chapter,
+        created_at: createdAt
+      });
+    });
+    return { recipients: learnerIds.length };
+  }
+
+  function logSpeech(entry) {
+    const stored = transcriptLog.record(entry);
+    if (stored) checkinScheduler.noteSpeech(stored);
+    return stored;
+  }
+
+  seedWorkshop(runtime);
 
   return http.createServer(function (req, res) {
     if (req.method === "GET" && req.url === "/api/livekit/config") {
@@ -276,7 +454,9 @@ function createServer(options) {
     if (req.method === "POST" && req.url === "/api/transcribe") {
       return readBinary(req, res, function (audio, headers) {
         const requestStartedAt = Date.now();
-        transcribeAudio(audio, headers, function (error, transcript) {
+        const participantId = headers["x-participant-id"] || config.participant_id;
+        const pendingPrompt = sentenceBuffer.pending(participantId);
+        transcribeAudio(audio, headers, pendingPrompt, function (error, transcript) {
           if (error) {
             return sendJson(res, {
               error: error.message,
@@ -286,14 +466,23 @@ function createServer(options) {
             }, 503);
           }
           const sttCompletedAt = Date.now();
-          const participantId = headers["x-participant-id"] || config.participant_id;
+          const roomName = cleanRoomName(headers["x-room-name"]) || cleanRoomName(headers["x-room"]) || DEFAULT_ROOM;
           const nativeLanguage = normalizeLanguage(headers["x-native-language"]);
           const targetLanguage = headers["x-target-language"] || "es";
           const speechSequence = headers["x-speech-sequence"] || null;
+          const speechSequenceNumber = Number(speechSequence);
           // Whisper receives the selected language as a hint. Its detected-language
           // field is unreliable on short chunks, so a mismatch is not grounds for
           // silently deleting an otherwise valid utterance.
           if (nativeLanguage) transcript.language = nativeLanguage;
+          const hygiene = cleanTranscript(transcript.text, {
+            participantId: participantId
+          });
+          transcript.text = hygiene.text;
+          if (hygiene.dropped) {
+            transcript.ignored = true;
+            transcript.ignore_reason = hygiene.reason;
+          }
           const utteranceId = "utterance-" + Date.now();
           const sourceEvent = baseEvent({
             event_id: "stt-partial-" + Date.now(),
@@ -304,86 +493,110 @@ function createServer(options) {
             actor: { actor_type: "participant", participant_id: participantId },
             payload: {
               transcript_fragment: transcript.text,
-              is_final_fragment: true,
+              is_final_fragment: false,
               stt_provider: transcript.provider,
               stt_confidence: transcript.language_probability
             }
           });
-          const completedEvent = baseEvent({
-            event_id: "stt-completed-" + Date.now(),
-            type: "utterance_completed",
-            source: "faster-whisper",
-            privacy_scope: "public_shared",
-            language: transcript.language,
-            actor: { actor_type: "participant", participant_id: participantId },
-            payload: {
-              utterance_id: utteranceId,
-              original_text: transcript.text,
-              original_language: transcript.language,
-              completion_reason: "timeout",
-              source_event_ids: [sourceEvent.event_id]
-            }
-          });
           const partialResult = transcript.text ? runtime.handleEvent(sourceEvent) : null;
-          const completedResult = transcript.text ? runtime.handleEvent(completedEvent) : null;
+          const uploadedAt = Date.now();
+          const speechLeadMs = Number(headers["x-speech-lead-ms"] || 0);
+          const speechSilenceMs = Number(headers["x-speech-silence-ms"] || 0);
+          speakerContext[participantId] = {
+            participantId: participantId,
+            roomName: roomName,
+            sourceLanguage: transcript.language,
+            targetLanguage: targetLanguage,
+            utteranceId: utteranceId,
+            sourceEventIds: transcript.text ? [sourceEvent.event_id] : [],
+            sttProvider: transcript.provider || "faster-whisper",
+            displayName: headers["x-display-name"] || participantId,
+            role: speakerRole(participantId)
+          };
+          const assembled = sentenceBuffer.push(participantId, transcript.text, uploadedAt, {
+            speechStartedAt: uploadedAt - (Number.isFinite(speechLeadMs) ? Math.max(0, speechLeadMs) : 0),
+            speechEndedAt: uploadedAt - (Number.isFinite(speechSilenceMs) ? Math.max(0, speechSilenceMs) : 0),
+            sequence: Number.isFinite(speechSequenceNumber) ? speechSequenceNumber : undefined
+          });
           const translationStartedAt = Date.now();
-          translateText(transcript.text, transcript.language, targetLanguage, function (translationError, translation) {
-            if (translationError || !transcript.text || transcript.language === targetLanguage) {
-              recordTranscriptionDiagnostic(diagnostics, participantId, {
+          if (!assembled.ready) {
+            recordTranscriptionDiagnostic(diagnostics, participantId, {
+              stt: sttCompletedAt - requestStartedAt,
+              translation: 0,
+              total: Date.now() - requestStartedAt
+            }, false);
+            return sendJson(res, {
+              transcript,
+              translation: null,
+              released_sentence: null,
+              pending_transcript: assembled.pending,
+              speech_sequence: speechSequence,
+              timings_ms: {
                 stt: sttCompletedAt - requestStartedAt,
-                translation: Date.now() - translationStartedAt,
+                translation: 0,
                 total: Date.now() - requestStartedAt
-              }, Boolean(translationError));
-              return sendJson(res, {
-                transcript,
-                translation: translationError ? { unavailable: true } : null,
-                speech_sequence: speechSequence,
-                timings_ms: {
-                  stt: sttCompletedAt - requestStartedAt,
-                  translation: Date.now() - translationStartedAt,
-                  total: Date.now() - requestStartedAt
-                },
-                events: [sourceEvent, completedEvent],
-                result: completedResult ? summarizeResult(completedResult) : null,
-                state: learnerState(runtime, participantId)
-              });
-            }
-            const translationEvent = baseEvent({
-              event_id: "translation-completed-" + Date.now(),
-              type: "translation_completed",
-              source: translation.provider,
-              privacy_scope: "public_shared",
-              language: targetLanguage,
-              actor: { actor_type: "participant", participant_id: participantId },
-              payload: {
-                utterance_id: utteranceId,
-                original_text: transcript.text,
-                original_language: transcript.language,
-                translated_text: translation.translated_text,
-                target_language: targetLanguage,
-                provider: translation.provider,
-                context_event_ids: [completedEvent.event_id]
-              }
+              },
+              events: transcript.text ? [sourceEvent] : [],
+              result: partialResult ? summarizeResult(partialResult) : null,
+              state: learnerState(runtime, participantId, roomName)
             });
-            runtime.handleEvent(translationEvent);
+          }
+          publishSentence(Object.assign({}, speakerContext[participantId], {
+            utteranceId: utteranceId,
+            sourceEventIds: transcript.text ? [sourceEvent.event_id] : [],
+            completionReason: assembled.reason
+          }), assembled.ready, function (published) {
             recordTranscriptionDiagnostic(diagnostics, participantId, {
               stt: sttCompletedAt - requestStartedAt,
               translation: Date.now() - translationStartedAt,
               total: Date.now() - requestStartedAt
-            }, false);
+            }, Boolean(published.failed));
+            const events = transcript.text ? [sourceEvent] : [];
+            if (published.event) events.push(published.event);
+            if (published.translationEvent) events.push(published.translationEvent);
             sendJson(res, {
               transcript,
-              translation,
+              translation: published.failed ? { unavailable: true } : published.translation,
+              released_sentence: assembled.ready,
+              pending_transcript: assembled.pending,
               speech_sequence: speechSequence,
               timings_ms: {
                 stt: sttCompletedAt - requestStartedAt,
                 translation: Date.now() - translationStartedAt,
                 total: Date.now() - requestStartedAt
               },
-              events: [sourceEvent, completedEvent, translationEvent],
-              result: completedResult ? summarizeResult(completedResult) : null,
-              state: learnerState(runtime, participantId)
+              events: events,
+              result: published.result ? summarizeResult(published.result) : null,
+              state: learnerState(runtime, participantId, roomName)
             });
+          });
+        });
+      });
+    }
+
+    if (req.method === "POST" && req.url === "/api/transcribe/speaking") {
+      return readJson(req, res, function (body) {
+        const participantId = String(body.participant_id || config.participant_id).trim();
+        const sequence = Number(body.speech_sequence);
+        sentenceBuffer.markSpeaking(participantId, Number.isFinite(sequence) ? sequence : undefined);
+        sendJson(res, { ok: true });
+      });
+    }
+
+    if (req.method === "POST" && req.url === "/api/transcribe/flush") {
+      return readJson(req, res, function (body) {
+        const participantId = String(body.participant_id || config.participant_id).trim();
+        const context = speakerContext[participantId];
+        const flushed = sentenceBuffer.flush(participantId);
+        if (!flushed.ready || !context) {
+          return sendJson(res, { sentence: null, translation: null });
+        }
+        publishSentence(Object.assign({}, context, {
+          completionReason: flushed.reason
+        }), flushed.ready, function (published) {
+          sendJson(res, {
+            sentence: flushed.ready,
+            translation: published.failed ? { unavailable: true } : published.translation
           });
         });
       });
@@ -392,6 +605,34 @@ function createServer(options) {
     if (req.method === "GET" && new URL(req.url, "http://127.0.0.1").pathname === "/api/state") {
       const stateUrl = new URL(req.url, "http://127.0.0.1");
       return sendJson(res, learnerState(runtime, stateUrl.searchParams.get("participant_id") || config.participant_id, cleanRoomName(stateUrl.searchParams.get("room") || DEFAULT_ROOM)));
+    }
+
+    if (req.method === "GET" && new URL(req.url, "http://127.0.0.1").pathname === "/api/transcript") {
+      const transcriptUrl = new URL(req.url, "http://127.0.0.1");
+      const roomName = cleanRoomName(transcriptUrl.searchParams.get("room")) || DEFAULT_ROOM;
+      const limit = Number(transcriptUrl.searchParams.get("limit")) || 20;
+      return sendJson(res, {
+        room_name: roomName,
+        entries: transcriptLog.recent(roomName, Math.min(limit, 100))
+      });
+    }
+
+    if (req.method === "GET" && new URL(req.url, "http://127.0.0.1").pathname === "/api/transcript/live") {
+      const transcriptUrl = new URL(req.url, "http://127.0.0.1");
+      const roomName = cleanRoomName(transcriptUrl.searchParams.get("room")) || DEFAULT_ROOM;
+      const afterSequence = Number(transcriptUrl.searchParams.get("after_sequence")) || 0;
+      return sendJson(res, {
+        room_name: roomName,
+        latest_sequence: transcriptLog.latestSequence(roomName),
+        entries: transcriptLog.since(roomName, afterSequence, 25)
+      });
+    }
+
+    if (req.method === "GET" && new URL(req.url, "http://127.0.0.1").pathname === "/api/checkins") {
+      return sendJson(res, {
+        word_interval: checkinScheduler.wordInterval,
+        rooms: checkinScheduler.stats()
+      });
     }
 
     if (req.method === "GET" && new URL(req.url, "http://127.0.0.1").pathname === "/api/dm/contacts") {
@@ -433,7 +674,7 @@ function createServer(options) {
 
     if (req.method === "GET" && new URL(req.url, "http://127.0.0.1").pathname === "/api/facilitator/state") {
       const stateUrl = new URL(req.url, "http://127.0.0.1");
-      return sendJson(res, facilitatorState(runtime, cleanRoomName(stateUrl.searchParams.get("room") || DEFAULT_ROOM)));
+      return sendJson(res, facilitatorState(runtime, checkinScheduler, cleanRoomName(stateUrl.searchParams.get("room") || DEFAULT_ROOM)));
     }
 
     if (req.method === "GET" && req.url === "/api/workshop-control") {
@@ -465,7 +706,7 @@ function createServer(options) {
           return sendJson(res, { error: "Timer action must be start, pause, end, or reset" }, 400);
         }
         control.updated_at = new Date().toISOString();
-        sendJson(res, { timer: timerSnapshot(control), state: facilitatorState(runtime) });
+        sendJson(res, { timer: timerSnapshot(control), state: facilitatorState(runtime, checkinScheduler) });
       });
     }
 
@@ -515,7 +756,7 @@ function createServer(options) {
         });
         sendJson(res, {
           observations: observations.map(summarizeResult),
-          state: facilitatorState(runtime)
+          state: facilitatorState(runtime, checkinScheduler)
         });
       });
     }
@@ -786,7 +1027,7 @@ function createServer(options) {
             provider: "intelligibility-guard",
             created_at: new Date().toISOString()
           });
-          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime, checkinScheduler) });
         }
         if (/\b(which bud|what bud|are you the leader|leader bud|facil(?:-| )bud|facilitator bud)\b/i.test(text)) {
           runtime.recordPrivateMessage({
@@ -799,7 +1040,7 @@ function createServer(options) {
             latency_ms: 0,
             created_at: new Date().toISOString()
           });
-          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime, checkinScheduler) });
         }
         if (/\b(are you online|are you there|you online|is bud online|bud online|can you hear me)\b/i.test(text)) {
           runtime.recordPrivateMessage({
@@ -812,7 +1053,7 @@ function createServer(options) {
             latency_ms: 0,
             created_at: new Date().toISOString()
           });
-          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime, checkinScheduler) });
         }
         const attendance = body.attendance_context;
         if (attendance && /\b(how many|number of|count of).*(learner|student|participant)/i.test(text)) {
@@ -830,7 +1071,7 @@ function createServer(options) {
             latency_ms: 0,
             created_at: new Date().toISOString()
           });
-          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime, checkinScheduler) });
         }
         const roomName = body.room_name || DEFAULT_ROOM;
         const sourceContext = sourcePackStore.context(roomName, text, { all_chunks: true });
@@ -872,7 +1113,7 @@ function createServer(options) {
         }
         sendJson(res, {
           result: summarizeResult(result),
-          state: facilitatorState(runtime)
+          state: facilitatorState(runtime, checkinScheduler)
         });
       });
     }
@@ -898,7 +1139,7 @@ function createServer(options) {
           evidence_refs: [],
           created_at: new Date().toISOString()
         });
-        sendJson(res, { state: facilitatorState(runtime) });
+        sendJson(res, { state: facilitatorState(runtime, checkinScheduler) });
       });
     }
 
@@ -974,6 +1215,8 @@ function createServer(options) {
     if (req.method === "POST" && req.url === "/api/comprehension-response") {
       return readJson(req, res, function (body) {
         const participantId = body.participant_id || config.participant_id;
+        const roomName = cleanRoomName(body.room_name || DEFAULT_ROOM);
+        const chapter = checkinScheduler.currentChapter(roomName);
         const result = runtime.handleEvent(baseEvent({
           event_id: "ui-comprehension-" + Date.now(),
           type: "comprehension_check_response",
@@ -981,12 +1224,13 @@ function createServer(options) {
           privacy_scope: "private_participant_ai",
           actor: { actor_type: "participant", participant_id: participantId },
           payload: {
-            checkin_id: "ui-recap-001",
-            recap_point_id: body.page_id || "ui-facilitator-prompt-001",
+            checkin_id: chapter.chapter_id || "ui-recap-001",
+            recap_point_id: body.page_id || chapter.chapter_id || "ui-facilitator-prompt-001",
+            chapter: chapter,
             response: body.response
           }
         }));
-        sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId) });
+        sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId, roomName) });
       });
     }
 
@@ -1049,6 +1293,26 @@ function createServer(options) {
 
     sendJson(res, { error: "Not found" }, 404);
   });
+}
+
+function seedWorkshop(runtime) {
+  if (currentPrompt(runtime.getStateSnapshot())) return;
+  runtime.handleEvent(baseEvent({
+    event_id: "ui-facilitator-prompt-001",
+    type: "facilitator_instruction",
+    source: "system",
+    privacy_scope: "public_shared",
+    actor: {
+      actor_type: "facilitator",
+      participant_id: "facilitator-1"
+    },
+    payload: {
+      instruction_id: "ui-instruction-001",
+      text: "Define success criteria for your prototype: name the user goal, describe what a good outcome looks like, and list the evidence that would prove it worked.",
+      target: "room",
+      language: "en"
+    }
+  }));
 }
 
 function cleanRoomName(value) {
@@ -1212,7 +1476,9 @@ function topviewState(diagnostics, roomDirectory, health) {
     providers: {
       livekit: Boolean(process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET),
       whisper: Boolean(process.env.STT_HOST || process.env.STT_PORT),
+      groq_stt: groqSttConfigured(),
       translation: Boolean(process.env.TRANSLATION_HOST || process.env.TRANSLATION_PORT),
+      llm_translation: llmTranslateConfigured() ? llmTranslateBackend() : false,
       qwen: Boolean(process.env.LLM_HOST || process.env.LLM_PORT)
     },
     services: health || {},
@@ -1282,9 +1548,13 @@ function learnerTaskResponses(state, roomName, participantId) {
   }, {});
 }
 
-function facilitatorState(runtime, roomName) {
+function facilitatorState(runtime, schedulerOrRoomName, maybeRoomName) {
+  const scheduler = schedulerOrRoomName && typeof schedulerOrRoomName.currentChapter === "function" ? schedulerOrRoomName : null;
+  const roomName = schedulerOrRoomName && typeof schedulerOrRoomName.currentChapter === "function" ? maybeRoomName : schedulerOrRoomName;
   const state = runtime.getStateSnapshot();
   const activeRoomName = roomName || DEFAULT_ROOM;
+  const currentChapter = scheduler ? scheduler.currentChapter(activeRoomName) : null;
+  const deliveredChapters = scheduler ? scheduler.chapters(activeRoomName) : [];
   const participants = Object.keys(state.participants).map(function (participantId) {
     const participant = state.participants[participantId];
     return {
@@ -1294,11 +1564,13 @@ function facilitatorState(runtime, roomName) {
       participation: participant.participation && participant.participation.status || "unknown",
       comprehension: participant.comprehension && participant.comprehension.status || "unknown",
       comprehension_recap_point_id: participant.comprehension && participant.comprehension.recap_point_id || null,
+      comprehension_reports: participant.comprehension && Array.isArray(participant.comprehension.reports) ? participant.comprehension.reports : [],
       updated_at: participant.updated_at
     };
   }).filter(function (participant) {
     return participant.role !== "facilitator";
   });
+  const currentChapterRollup = chapterRollup(participants, currentChapter);
   const rollup = { green: 0, yellow: 0, red: 0, unknown: 0 };
   const difficultPoints = {};
   participants.forEach(function (participant) {
@@ -1325,6 +1597,10 @@ function facilitatorState(runtime, roomName) {
     rollup: Object.assign({}, rollup, {
       most_flagged_recap_point: topRecapPoint,
       most_flagged_count: topRecapPoint ? difficultPoints[topRecapPoint] : 0
+    }),
+    current_chapter: currentChapter ? Object.assign({}, currentChapter, currentChapterRollup) : null,
+    chapter_breakdown: deliveredChapters.map(function (chapter) {
+      return Object.assign({}, chapter, chapterRollup(participants, chapter));
     }),
     room_report: {
       generated_at: new Date().toISOString(),
@@ -1367,6 +1643,26 @@ function facilitatorState(runtime, roomName) {
       return message.scope === "group_shared" && (!message.room_name || message.room_name === activeRoomName);
     })
   };
+}
+
+function chapterRollup(participants, chapter) {
+  const counts = { green: 0, yellow: 0, red: 0, unknown: 0 };
+  const chapterId = chapter && chapter.chapter_id;
+  participants.forEach(function (participant) {
+    const report = chapterId && participant.comprehension_reports.find(function (entry) {
+      return entry.chapter_id === chapterId;
+    });
+    const status = report && counts[report.status] !== undefined ? report.status : "unknown";
+    counts[status] += 1;
+  });
+  const answered = counts.green + counts.yellow + counts.red;
+  const total = answered + counts.unknown;
+  return Object.assign({}, counts, {
+    answered: answered,
+    total: total,
+    flagged: counts.yellow + counts.red,
+    flagged_share: total ? (counts.yellow + counts.red) / total : 0
+  });
 }
 
 function taskInsightSummary(state, roomName) {
@@ -1519,17 +1815,39 @@ function readBinary(req, res, callback) {
   });
 }
 
-function transcribeAudio(audio, headers, callback) {
+function transcribeAudio(audio, headers, prompt, callback) {
+  if (typeof prompt === "function") {
+    callback = prompt;
+    prompt = "";
+  }
   const languageHint = normalizeLanguage(headers["x-native-language"]);
+  const contentType = headers["content-type"] || "audio/webm";
+  const preferGroq = String(process.env.STT_PROVIDER || "").toLowerCase() !== "local" && groqSttConfigured();
+
+  if (!preferGroq) {
+    return transcribeWithLocalWhisper(audio, contentType, languageHint, prompt, callback);
+  }
+
+  transcribeWithGroq(audio, contentType, languageHint, prompt)
+    .then(function (transcript) { callback(null, transcript); })
+    .catch(function (error) {
+      console.warn("Groq STT failed, falling back to local Whisper:", error.message);
+      transcribeWithLocalWhisper(audio, contentType, languageHint, prompt, callback);
+    });
+}
+
+function transcribeWithLocalWhisper(audio, contentType, languageHint, prompt, callback) {
+  const encodedPrompt = prompt ? Buffer.from(String(prompt), "utf8").toString("base64") : "";
   const request = http.request({
     hostname: process.env.STT_HOST || "127.0.0.1",
     port: Number(process.env.STT_PORT || 8787),
     path: "/transcribe",
     method: "POST",
     headers: {
-      "Content-Type": headers["content-type"] || "audio/webm",
+      "Content-Type": contentType,
       "Content-Length": audio.length,
-      "X-Language-Hint": languageHint
+      "X-Language-Hint": languageHint,
+      "X-Prompt": encodedPrompt
     }
   }, function (response) {
     let body = "";
@@ -1549,7 +1867,46 @@ function transcribeAudio(audio, headers, callback) {
   request.end(audio);
 }
 
-function translateText(text, sourceLanguage, targetLanguage, callback) {
+function speakerRole(participantId) {
+  return String(participantId || "").indexOf("facilitator") === 0 ? "facilitator" : "learner";
+}
+
+const MAX_REMEMBERED_UTTERANCES = 6;
+
+function rememberUtterance(store, participantId, text) {
+  const trimmed = String(text || "").trim();
+  if (!trimmed) return;
+  const turns = store[participantId] || (store[participantId] = []);
+  turns.push(trimmed);
+  if (turns.length > MAX_REMEMBERED_UTTERANCES) turns.shift();
+}
+
+function translateText(text, sourceLanguage, targetLanguage, context, callback) {
+  if (typeof context === "function") {
+    callback = context;
+    context = {};
+  }
+
+  if (llmTranslateConfigured()) {
+    return translateWithLlm({
+      text: text,
+      sourceLanguage: sourceLanguage,
+      targetLanguage: targetLanguage,
+      workshopPrompt: context.workshopPrompt,
+      recentTurns: context.recentTurns,
+      sourceText: context.sourceText
+    })
+      .then(function (translation) { callback(null, translation); })
+      .catch(function (error) {
+        console.warn("LLM translation failed, falling back to NLLB:", error.message);
+        translateWithNllb(text, sourceLanguage, targetLanguage, callback);
+      });
+  }
+
+  return translateWithNllb(text, sourceLanguage, targetLanguage, callback);
+}
+
+function translateWithNllb(text, sourceLanguage, targetLanguage, callback) {
   const body = Buffer.from(JSON.stringify({
     text,
     source_language: sourceLanguage,
