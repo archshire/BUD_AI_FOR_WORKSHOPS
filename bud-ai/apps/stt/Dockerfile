@@ -16,7 +16,6 @@ ENV WHISPER_DEVICE=cpu
 ENV WHISPER_COMPUTE_TYPE=int8
 ENV HF_HOME=/models/huggingface
 
-VOLUME ["/models"]
 EXPOSE 8787
 
 CMD ["python", "whisper_service.py"]

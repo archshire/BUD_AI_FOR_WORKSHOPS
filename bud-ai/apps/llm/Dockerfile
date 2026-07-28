@@ -17,7 +17,6 @@ ENV LLM_THREADS=12
 ENV QWEN_MODEL_DIR=/models/qwen
 ENV QWEN_MODEL_PATH=/models/qwen/Qwen3-1.7B-Q4_K_M.gguf
 
-VOLUME ["/models"]
 EXPOSE 8790
 
 CMD ["/app/docker-entrypoint.sh"]

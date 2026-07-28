@@ -13,7 +13,6 @@ ENV TRANSLATION_PORT=8788
 ENV NLLB_MODEL_DIR=/models/nllb
 ENV HF_HOME=/models/huggingface
 
-VOLUME ["/models"]
 EXPOSE 8788
 
 CMD ["/app/docker-entrypoint.sh"]
