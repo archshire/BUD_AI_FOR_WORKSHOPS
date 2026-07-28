@@ -228,6 +228,20 @@ function testWorkshopAudioAndCaptionWiring() {
   assert.equal(chapterCards[0].title, "Define the problem");
   assert.equal(chapterCards[1].title, "Test the prototype");
   assert.equal(chapterCards[2].title, "Improve the design");
+  const bareNumberCards = parseWorkshopPlan([
+    "1",
+    "Learner task: Design a real-time multilingual prototype.",
+    "Comprehension check: What requirements must the prototype meet?",
+    "2",
+    "Learner task: Create a multilingual chat interface.",
+    "Comprehension check: How does the interface improve communication?",
+    "3",
+    "Learner task: Develop a real-time translation tool.",
+    "Comprehension check: What benefit does translation provide?"
+  ].join("\n"));
+  assert.equal(bareNumberCards.length, 3);
+  assert.equal(bareNumberCards[0].title, "Chapter 1");
+  assert.equal(bareNumberCards[1].comprehensionCheck, "How does the interface improve communication?");
 }
 
 function testBudMemorySupportSignals() {

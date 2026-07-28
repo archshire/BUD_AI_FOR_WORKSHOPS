@@ -894,10 +894,17 @@ function parseWorkshopPlanCards(plan) {
     if (!line) return;
     const chapterHeading = line.match(/^(?:#{1,6}\s+)?(?:\*\*)?chapter\s+\d+\s*(?:[.):\-]\s*|\s+)(.+?)(?:\*\*)?$/i);
     const numbered = line.match(/^\d+\s*[.)-]\s+(.+)$/);
+    const bareNumber = line.match(/^(\d+)\s*$/);
     const heading = line.match(/^#{1,6}\s+(.+)$/);
-    if (chapterHeading || numbered || heading) {
+    if (chapterHeading || numbered || bareNumber || heading) {
       commitCard();
-      card = { title: plainWorkshopPlanValue((chapterHeading || numbered || heading)[1]), learnerTask: "", comprehensionCheck: "" };
+      card = {
+        title: bareNumber
+          ? "Chapter " + bareNumber[1]
+          : plainWorkshopPlanValue((chapterHeading || numbered || heading)[1]),
+        learnerTask: "",
+        comprehensionCheck: ""
+      };
       return;
     }
     const normalized = line.replace(/^[-*+]\s+/, "").replace(/^\*\*([^*]+)\*\*\s*/, "$1 ");
