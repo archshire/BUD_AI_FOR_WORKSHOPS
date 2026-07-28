@@ -17,6 +17,12 @@ activity detection to submit meaningful utterances after a pause, and sends
 the selected native language as a Whisper hint. `WHISPER_BEAM_SIZE=1`
 remains available for latency comparison.
 
+Qwen is a constrained reasoning provider, not Bud's source of truth. The
+application chooses the Learner Bud or Leader Bud persona, retrieves only the
+permitted source/plan/chat/memory context, uses direct source routes for known
+facts such as attendance and task insights, and blocks unsupported or
+privacy-violating answers before display.
+
 ## Contents
 
 - [Quick Start](#quick-start)
@@ -105,7 +111,7 @@ remain scrollable within bounded client panels.
 - Context retrieval for facilitator instructions and recent permitted workshop evidence.
 - Evidence-based room insights and Leader Bud briefings drawn from explicit task
   check-ins plus permitted Live/Breakout chat; quiet learners remain unknown.
-- Dependency-free learner web UI with a private Bud panel, "Help, I'm Stuck" action, private message composer, and adaptive scan control.
+- Dependency-free learner web UI with a private Bud panel, "Help, I'm Stuck" action, private message composer, Live Chat, and assigned Breakout Room view.
 - Local HTTP API for learner state, private help requests, private messages, and observation scans.
 - Application-side tool validation.
 - Demo fixtures and smoke tests.
@@ -122,11 +128,13 @@ remain scrollable within bounded client panels.
   8790; replies are grounded with the current workshop documents and run with
   Qwen3's non-thinking mode for lower latency.
 - Leader Bud uses the same local Qwen service for leader-private questions;
-  Learner Bud and Leader Bud remain separate privacy scopes.
+  Learner Bud and Leader Bud remain separate privacy scopes and receive
+  different permitted contextual-memory retrievals.
 
 ## Not Yet Implemented
 
-- LiveKit/frontend scheduler wiring for periodic adaptive observation scans.
+- Model-assisted ledger compaction/category suggestions; the current ledger
+  write path is application-owned and source-validated.
 - LiveKit event normalization and production room lifecycle behavior.
 - Production transcript/current-activity provider pipeline.
 - Production STT and translation provider integrations.

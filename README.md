@@ -11,6 +11,7 @@ requirements are in the [active PRD](docs/01_PRODUCT/PRD_BUD_AI_DYNAMIC_MULTILIN
 - [Why Bud AI Exists](#why-bud-ai-exists)
 - [Main Areas](#main-areas)
 - [Docker Demo](#docker-demo)
+- [Same-Network Testing](#same-network-testing)
 - [Licensing](#licensing)
 
 ## Why Bud AI Exists
@@ -49,23 +50,24 @@ meaning, expose private conversations, make consequential facilitator
 decisions, or treat silence as proof of understanding.
 
 This partner model is evidenced by Bud's private context-grounded support,
-periodic learner summaries, optional adaptive check-ins, green/yellow/red
-comprehension sensing, multilingual meaning repair, privacy-aware facilitator
-reports, correction handling, and willingness to wait when the evidence is
-insufficient. Bud's common goal is not to replace the teacher or the learner;
-it is to help the workshop preserve enough shared meaning for people to keep
-learning and collaborating together.
+signal-driven yellow/red task support, green/yellow/red comprehension sensing,
+multilingual meaning repair, privacy-aware facilitator reports, correction
+handling, and willingness to wait when the evidence is insufficient. Bud's
+common goal is not to replace the teacher or the learner; it is to help the
+workshop preserve enough shared meaning for people to keep learning and
+collaborating together.
 
 ### Demo memory boundary
 
-For this prototype, each Bud's growing memory is reconstructed from persisted
-permitted chat and workshop state and supplied to Qwen when the Bud replies.
-This is intentionally simple demo infrastructure, not a claim of permanent
-model learning. Future builds should use a session-scoped event store,
-privacy-keyed retrieval, and rolling summaries so long workshops remain
-context-aware without replaying large raw transcripts on every request.
-The prototype also writes a room- and Bud-scoped Markdown memory file as a
-fast, human-readable retrieval index; structured state remains authoritative.
+For this prototype, each Bud has a room- and privacy-scoped Markdown memory
+ledger. The application retrieves only the smallest permitted memory slice and
+authoritative workshop state before Qwen is called; it does not replay a raw
+chat transcript or accept a generic completion as workshop truth. Identity,
+attendance, task insights, active lesson material, breakout membership, and
+permitted chat summaries use source-first application routes. This is
+intentionally simple demo infrastructure, not a claim of permanent model
+learning. Future builds should use a session-scoped event store,
+privacy-keyed retrieval, and rolling summaries.
 
 ## Main Areas
 
@@ -163,6 +165,24 @@ make up
 
 To run the stack in the background, use `make up-d`; inspect it with
 `make ps` or `make logs`, and stop it with `make down`.
+
+## Same-Network Testing
+
+The default URLs use `127.0.0.1` and work only on the host machine. To test
+from another device on the same LAN, find the host's LAN address and set both
+LiveKit variables before starting the stack. For example, if the host is
+`10.12.7.1`:
+
+```sh
+LIVEKIT_PUBLIC_URL=ws://10.12.7.1:7880 \
+LIVEKIT_NODE_IP=10.12.7.1 \
+make up-d
+```
+
+Share `http://10.12.7.1:3002/` with learners and use
+`http://10.12.7.1:3002/leader` for the Leader view. The host firewall must
+allow TCP `3002`, `7880`, `7881`, and UDP `7882` on the local network. These
+settings are local environment configuration and should not be committed.
 
 ## Licensing
 
