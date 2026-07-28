@@ -19,7 +19,7 @@ services:
       - "${LIVEKIT_PORT:-7880}:7880"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
+      - ${CADDY_DATA_MOUNT:-caddy-data}:/data
       - caddy-config:/config
 
   whisper:
@@ -59,7 +59,9 @@ services:
       # makes clean model-volume downloads reproducible across rebuilds.
       QWEN_MODEL_URL: ${QWEN_MODEL_URL:-https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/cc27747d7419139e44ba97777c2f2fd5dca92ee1/Qwen3-1.7B-Q4_K_M.gguf?download=true}
     volumes:
-      - ${QWEN_MODEL_MOUNT:-qwen-models}:/models/qwen
+      # Mount at /models, matching the image-level volume declaration. A
+      # narrower /models/qwen bind would be masked by that declared volume.
+      - ${QWEN_MODEL_MOUNT:-qwen-models}:/models
     healthcheck:
       test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:8790/health"]
       interval: 10s
@@ -89,6 +91,10 @@ services:
       TRANSLATION_PORT: 8788
       LLM_HOST: qwen
       LLM_PORT: 8790
+      LLM_PROVIDER: ${LLM_PROVIDER:-qwen}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-chat-latest}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
       CHECKIN_WORD_INTERVAL: ${CHECKIN_WORD_INTERVAL:-500}
       SOURCE_PACK_ROOT: /app/data/source-packs
       BUD_STATE_FILE: /app/data/source-packs/workshop-state.json
@@ -97,7 +103,7 @@ services:
     ports:
       - "${BUD_PORT:-3002}:3002"
     volumes:
-      - source-packs:/app/data/source-packs
+      - ${SOURCE_PACK_MOUNT:-source-packs}:/app/data/source-packs
 
 volumes:
   whisper-models:

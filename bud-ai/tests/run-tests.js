@@ -2,7 +2,7 @@ const assert = require("assert");
 const { createBudRuntime } = require("../apps/server/src/runtime");
 const { createInMemoryStateStore } = require("../apps/server/src/state/in-memory-state-store");
 const { executeDecisionTools } = require("../apps/server/src/tools/tool-executor");
-const { createServer, checkinRecipients, asksCurrentLesson, normalizeLearnerReasoningText, normalizeChineseBudReply } = require("../apps/server/src/index");
+const { createServer, checkinRecipients, asksCurrentLesson, llmProvider, llmProviderLabel, normalizeLearnerReasoningText, normalizeChineseBudReply } = require("../apps/server/src/index");
 const { createTranscriptLog } = require("../apps/server/src/transcript/transcript-log");
 const { createSentenceBuffer } = require("../apps/server/src/transcript/sentence-buffer");
 const { cleanTranscript } = require("../apps/server/src/providers/transcript-hygiene");
@@ -55,6 +55,7 @@ function run() {
   testHygieneKeepsRealSpeech();
   testHygieneDropsVerbatimRepeatsPerSpeaker();
   testGroqSttConfiguration();
+  testBudLlmProviderConfiguration();
   testLlmTranslationConfiguration();
   testLlmTranslationCleansModelWrappers();
   testCheckinSchedulerTracksSpeechWithoutImmediateInterruption();
@@ -97,7 +98,22 @@ function testRootProblemDefinition(done) {
         answer.text,
         "It means the **fundamental, underlying cause** of a situation or trouble, rather than just the visible signs or surface symptoms."
       );
-      server.close(done);
+      requestJson(port, "POST", "/api/private-message", {
+        room_name: "BUD-ROOT-PROBLEM",
+        participant_id: "learner-root-problem-zh",
+        display_name: "Root Problem Learner ZH",
+        native_language: "zh",
+        text: "“问题的根”是什么意思？"
+      }, function (chinesePayload) {
+        const chineseAnswer = chinesePayload.state.private_messages.slice(-1)[0];
+        assert.equal(chineseAnswer.provider, "learner-root-problem-definition");
+        assert.equal(chineseAnswer.language, "zh");
+        assert.equal(
+          chineseAnswer.text,
+          "“问题的根”或“问题的根源”指的是造成问题的根本原因，也就是藏在表面现象下面、真正让问题发生的原因；不是只看表面的症状。"
+        );
+        server.close(done);
+      });
     });
   });
 }
@@ -163,8 +179,8 @@ function testWorkshopAudioAndCaptionWiring() {
   assert.equal(learnerApp.indexOf("function renderLocalizedState") !== -1, true);
   assert.equal(leader.indexOf("roomNameInput.addEventListener(\"change\", resetLeaderSourcePack)") === -1, true);
   assert.equal(/\nresetLeaderSourcePack\(\);\n/.test(leader), false);
-  assert.equal(leader.indexOf("new_workshop: true") === -1, true);
-  assert.equal(leader.indexOf("body: JSON.stringify({ room_name: roomName })") !== -1, true);
+  assert.equal(leader.indexOf("new_workshop: true") !== -1, true);
+  assert.equal(leader.indexOf("body: JSON.stringify({ room_name: roomName, new_workshop: true })") !== -1, true);
   assert.equal(leader.indexOf("let sourcePackPreparedForSession = false") !== -1, true);
   assert.equal(leader.indexOf("prepareSourcePackForUpload()") !== -1, true);
   assert.equal(leader.indexOf("sourcePackPreparedForSession = true") !== -1, true);
@@ -1131,6 +1147,24 @@ function testLlmTranslationConfiguration() {
   else process.env.LLM_PORT = originalPort;
 }
 
+function testBudLlmProviderConfiguration() {
+  const originalProvider = process.env.LLM_PROVIDER;
+
+  delete process.env.LLM_PROVIDER;
+  assert.equal(llmProvider(), "qwen");
+  assert.equal(llmProviderLabel(), "Qwen");
+
+  process.env.LLM_PROVIDER = "openai";
+  assert.equal(llmProvider(), "openai");
+  assert.equal(llmProviderLabel(), "OpenAI");
+
+  process.env.LLM_PROVIDER = "dev";
+  assert.equal(llmProvider(), "qwen");
+
+  if (originalProvider === undefined) delete process.env.LLM_PROVIDER;
+  else process.env.LLM_PROVIDER = originalProvider;
+}
+
 function testLlmTranslationCleansModelWrappers() {
   assert.equal(cleanTranslation("Translation: hello"), "hello");
   assert.equal(cleanTranslation("\"hello\""), "hello");
@@ -1221,7 +1255,8 @@ function testLearnerCheckinRendering() {
   assert.equal(learnerApp.indexOf("message-checkin") !== -1, true);
   assert.equal(server.indexOf("Do not ask the learner to respond or self-report.") !== -1, true);
   assert.equal(server.indexOf('normalizeLanguage(stateUrl.searchParams.get("target"))') !== -1, true);
-  assert.equal(server.indexOf("localizeBudState(learnerState(runtime, participantId, roomName), targetLanguage") !== -1, true);
+  assert.equal(server.indexOf('stateUrl.searchParams.get("display_name")') !== -1, true);
+  assert.equal(server.indexOf("localizeBudState(learnerState(runtime, participantId, roomName, displayName), targetLanguage") !== -1, true);
 }
 
 function testLearnerNativeLanguageApi(done) {
@@ -1433,7 +1468,35 @@ function testLeaderNameRouting(done) {
         const clarify = unintelligible.state.facil_bud_messages.slice(-1)[0];
         assert.equal(clarify.provider, "intelligibility-guard");
         assert.equal(clarify.text, "I'm sorry, I don't understand. Could you say that again?");
-        server.close(done);
+        requestJson(port, "POST", "/api/topview/presence", {
+          room_name: "BUD-101",
+          participant_id: "learner-zh",
+          display_name: "Mei",
+          role: "learner",
+          language: "zh",
+          connected: true
+        }, function () {
+          requestJson(port, "POST", "/api/topview/presence", {
+            room_name: "BUD-101",
+            participant_id: "learner-en",
+            display_name: "Aisha",
+            role: "learner",
+            language: "en",
+            connected: true
+          }, function () {
+            requestJson(port, "POST", "/api/facilitator-message", {
+              room_name: "BUD-101",
+              leader_name: "Daniel Yeo",
+              text: "Are there any students speaking Chinese?"
+            }, function (languagePayload) {
+              const languageAnswer = languagePayload.state.facil_bud_messages.slice(-1)[0];
+              assert.equal(languageAnswer.provider, "learner-language-context");
+              assert.equal(languageAnswer.text.indexOf("Mei") !== -1, true);
+              assert.equal(languageAnswer.text.indexOf("Chinese selected") !== -1, true);
+              server.close(done);
+            });
+          });
+        });
       });
     });
   });
@@ -1560,16 +1623,26 @@ function testBreakoutServerEnforcesAssignment(done) {
     }, function (sent) {
       assert.equal(sent.state.group_messages.length, 1);
       assert.equal(sent.state.group_messages[0].target_id, "breakout-room-1");
-      requestJson(port, "GET", "/api/group-messages?participant_id=learner-alice&room=" + roomName + "&scope=group&target=en", null, function (aliceChat) {
-        assert.equal(aliceChat.scope, "group");
-        assert.equal(aliceChat.messages.length, 1);
-        assert.equal(aliceChat.messages[0].scope, "group_shared");
-        assert.equal(aliceChat.messages[0].target_id, "breakout-room-1");
-        requestJson(port, "GET", "/api/group-messages?participant_id=learner-bob&room=" + roomName + "&scope=group&target=en", null, function (bobChat) {
-          assert.equal(bobChat.messages.length, 0);
-          requestJson(port, "GET", "/api/state?participant_id=learner-bob&room=" + roomName, null, function (bobState) {
-            assert.equal(bobState.group_messages.length, 0);
-            server.close(done);
+      requestJson(port, "POST", "/api/group-message", {
+        room_name: roomName,
+        participant_id: "guest-alice-refreshed",
+        sender_display_name: "Alice",
+        group_id: "breakout-room-1",
+        text: "This refreshed guest ID should still use Alice's assigned room."
+      }, function (refreshedGuest) {
+        assert.equal(refreshedGuest.state.group_messages.length, 2);
+        assert.equal(refreshedGuest.state.group_messages[1].target_id, "breakout-room-1");
+        requestJson(port, "GET", "/api/group-messages?participant_id=guest-alice-refreshed&display_name=Alice&room=" + roomName + "&scope=group&target=en", null, function (aliceChat) {
+          assert.equal(aliceChat.scope, "group");
+          assert.equal(aliceChat.messages.length, 2);
+          assert.equal(aliceChat.messages[0].scope, "group_shared");
+          assert.equal(aliceChat.messages[0].target_id, "breakout-room-1");
+          requestJson(port, "GET", "/api/group-messages?participant_id=learner-bob&room=" + roomName + "&scope=group&target=en", null, function (bobChat) {
+            assert.equal(bobChat.messages.length, 0);
+            requestJson(port, "GET", "/api/state?participant_id=learner-bob&room=" + roomName, null, function (bobState) {
+              assert.equal(bobState.group_messages.length, 0);
+              server.close(done);
+            });
           });
         });
       });

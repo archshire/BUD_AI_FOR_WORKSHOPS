@@ -61,8 +61,8 @@ collaborating together.
 
 For this prototype, each Bud has a room- and privacy-scoped Markdown memory
 ledger. The application retrieves only the smallest permitted memory slice and
-authoritative workshop state before Qwen is called; it does not replay a raw
-chat transcript or accept a generic completion as workshop truth. Identity,
+authoritative workshop state before the configured LLM is called; it does not
+replay a raw chat transcript or accept a generic completion as workshop truth. Identity,
 attendance, task insights, active lesson material, breakout membership, and
 permitted chat summaries use source-first application routes. This is
 intentionally simple demo infrastructure, not a claim of permanent model
@@ -106,18 +106,27 @@ make up
 This runs in the foreground. Once the services are ready, open these pages:
 
 - Participant: `http://127.0.0.1:3002/`
-- Facilitator: `http://127.0.0.1:3002/facilitator`
+- Leader: `http://127.0.0.1:3002/leader`
 - Development diagnostics: `http://127.0.0.1:3002/topview`
 
-The facilitator starts the workshop room and allocates participants. Each
+For microphone testing from other terminals or devices, use the HTTPS gateway
+instead of the direct localhost URLs:
+
+- Participant: `https://10.12.7.1:8443/`
+- Leader: `https://10.12.7.1:8443/leader`
+
+The browser LiveKit URL must be `wss://10.12.7.1:7880` for those clients.
+
+The Leader starts the workshop room and allocates participants. Each
 participant opens the participant URL in their own browser window, enters a
 display name, and joins the allocated room. `/topview` is for the development
 team and shows live operational data; it is not part of the participant or
-facilitator workflow.
+Leader workflow. The older `/facilitator` route remains available as a legacy
+view, but `/leader` is the current Leader workflow.
 
 ### Workshop Source Pack
 
-From the facilitator page, choose a `.pptx`, `.pdf`, or `.docx` file in the
+From the Leader page, choose a `.pptx`, `.pdf`, or `.docx` file in the
 **Workshop Source Pack** section and upload it. Google Slides can be exported
 as PDF or PowerPoint and uploaded through the same flow. Activate the version
 you want Bud to use. The server extracts text locally, preserves slide/page
@@ -150,6 +159,18 @@ Docker-managed volumes but does not delete files from `/tmp`.
 
 `make clean` removes Docker-managed volumes but does not delete files from the
 host bind mount under `/tmp`.
+
+To use OpenAI instead of local Qwen for Bud replies, set `LLM_PROVIDER=openai`
+and provide an API key. The default OpenAI model is `chat-latest`, the current
+ChatGPT chat model alias exposed by OpenAI's Chat Completions API; override
+`OPENAI_MODEL` if you want a pinned production model.
+
+```sh
+LLM_PROVIDER=openai \
+OPENAI_API_KEY=sk-... \
+OPENAI_MODEL=chat-latest \
+make up
+```
 
 If the local demo already occupies the default ports, use alternate host
 ports while keeping the container ports unchanged:

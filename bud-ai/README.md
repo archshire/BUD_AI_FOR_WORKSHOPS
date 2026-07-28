@@ -10,14 +10,15 @@ NormalizedEvent -> Bud Core -> AiDecision -> validator -> tool -> state update
 ```
 
 The local demo now includes faster-whisper STT, NLLB translation, and a
-CPU-local Qwen3-1.7B quantized model for private text replies.
+CPU-local Qwen3-1.7B quantized model for private text replies, with an
+optional OpenAI Chat Completions backend for Bud replies.
 Voice transcription defaults to multilingual faster-whisper `small` with
 beam size 2 and configurable CPU threads. The browser uses bounded voice
 activity detection to submit meaningful utterances after a pause, and sends
 the selected native language as a Whisper hint. `WHISPER_BEAM_SIZE=1`
 remains available for latency comparison.
 
-Qwen is a constrained reasoning provider, not Bud's source of truth. The
+The configured LLM is a constrained reasoning provider, not Bud's source of truth. The
 application chooses the Learner Bud or Leader Bud persona, retrieves only the
 permitted source/plan/chat/memory context, uses direct source routes for known
 facts such as attendance and task insights, and blocks unsupported or
@@ -61,12 +62,14 @@ persistent `whisper-models` volume. Later launches reuse that volume. Set
 When the services are ready, use:
 
 - `http://127.0.0.1:3002/` for a participant
-- `http://127.0.0.1:3002/facilitator` for the facilitator
+- `http://127.0.0.1:3002/leader` for the Leader
 - `http://127.0.0.1:3002/topview` for development diagnostics
 
-The facilitator opens the room and allocates participants. Participants join
-from the root URL after allocation. The topview page is a separate diagnostic
-surface and should not be used as a workshop participant page.
+The Leader opens the room and allocates participants. Participants join from
+the root URL after allocation. The topview page is a separate diagnostic
+surface and should not be used as a workshop participant page. The older
+`/facilitator` route remains available as a legacy view, but `/leader` is the
+current Leader workflow.
 
 Qwen uses `/tmp/bud-qwen-model` by default. The first `make up` downloads
 `Qwen3-1.7B-Q4_K_M.gguf` there if it is missing, and later launches reuse it.
@@ -74,7 +77,15 @@ Override `QWEN_MODEL_MOUNT`, `QWEN_MODEL_FILE`, or `QWEN_MODEL_URL` when using a
 different host directory or permitted GGUF source. `make clean` does not delete
 the host model directory.
 
-The launcher prints the learner and facilitator URLs and writes service logs
+To use OpenAI for Bud replies instead, set `LLM_PROVIDER=openai` and
+`OPENAI_API_KEY`. `OPENAI_MODEL` defaults to `chat-latest`, OpenAI's current
+ChatGPT chat model alias for the Chat Completions API.
+
+```sh
+LLM_PROVIDER=openai OPENAI_API_KEY=sk-... make up
+```
+
+The launcher prints the learner and Leader URLs and writes service logs
 to `/tmp/bud-demo-logs`. Press `Ctrl+C` to stop the services it started.
 
 For development diagnostics, open `/topview` on the Bud server. This view
@@ -125,9 +136,10 @@ remain scrollable within bounded client panels.
 - Local faster-whisper transcription and NLLB translation services for
   English, Spanish, Simplified Chinese, Burmese, French, and Thai.
 - Local Qwen3-1.7B text response service for private Bud questions on port
-  8790; replies are grounded with the current workshop documents and run with
+  8790, or hosted OpenAI Chat Completions when `LLM_PROVIDER=openai`; replies
+  are grounded with the current workshop documents and local Qwen runs with
   Qwen3's non-thinking mode for lower latency.
-- Leader Bud uses the same local Qwen service for leader-private questions;
+- Leader Bud uses the same configured LLM provider for leader-private questions;
   Learner Bud and Leader Bud remain separate privacy scopes and receive
   different permitted contextual-memory retrievals.
 

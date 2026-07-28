@@ -277,18 +277,36 @@ function participantRow(participant, registered) {
   return row;
 }
 
+function normalizedParticipantName(participant) {
+  return String(participant && participant.name || "").trim().toLowerCase();
+}
+
+function uniqueParticipantsByName(participants) {
+  const seen = {};
+  return participants.filter(function (participant) {
+    const key = normalizedParticipantName(participant) || participantKey(participant);
+    if (!key || seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
+}
+
+function guestRoster() {
+  return uniqueParticipantsByName(demoGuestParticipants.concat(liveGuestParticipants));
+}
+
 function renderAttendance() {
   registeredParticipants.innerHTML = "";
   guestParticipants.innerHTML = "";
   demoRegisteredParticipants.forEach(function (participant) { registeredParticipants.appendChild(participantRow(participant, true)); });
-  const guests = demoGuestParticipants.concat(liveGuestParticipants);
+  const guests = guestRoster();
   guests.forEach(function (participant) { guestParticipants.appendChild(participantRow(participant, false)); });
   const presentCount = demoRegisteredParticipants.filter(function (participant) { return participant.present; }).length + guests.filter(function (participant) { return participant.present; }).length;
   attendanceSummary.textContent = presentCount + " of " + (demoRegisteredParticipants.length + guests.length) + " participants present";
 }
 
 function participantsInAttendance() {
-  return demoRegisteredParticipants.concat(demoGuestParticipants, liveGuestParticipants).filter(function (participant) { return participant.present; });
+  return uniqueParticipantsByName(demoRegisteredParticipants.concat(guestRoster())).filter(function (participant) { return participant.present; });
 }
 
 function refreshLiveGuests() {
@@ -303,6 +321,7 @@ function refreshLiveGuests() {
         seen[participant.participant_id] = true;
         return { name: participant.display_name || participant.participant_id, present: true, participant_id: participant.participant_id };
       });
+      liveGuestParticipants = uniqueParticipantsByName(liveGuestParticipants);
       renderAttendance();
     })
     .catch(function () {});
@@ -1112,10 +1131,11 @@ leaderBudForm.addEventListener("submit", function (event) {
   leaderBudForm.querySelector("button").disabled = true;
   const registeredPresent = demoRegisteredParticipants.filter(function (participant) { return participant.present; }).length;
   const registeredAbsent = demoRegisteredParticipants.filter(function (participant) { return !participant.present; }).length;
-  const guestsPresent = demoGuestParticipants.concat(liveGuestParticipants).filter(function (participant) { return participant.present; }).length;
+  const guests = guestRoster();
+  const guestsPresent = guests.filter(function (participant) { return participant.present; }).length;
   const registeredPresentNames = demoRegisteredParticipants.filter(function (participant) { return participant.present; }).map(function (participant) { return participant.name; });
   const registeredAbsentNames = demoRegisteredParticipants.filter(function (participant) { return !participant.present; }).map(function (participant) { return participant.name; });
-  const guestPresentNames = demoGuestParticipants.concat(liveGuestParticipants).filter(function (participant) { return participant.present; }).map(function (participant) { return participant.name; });
+  const guestPresentNames = guests.filter(function (participant) { return participant.present; }).map(function (participant) { return participant.name; });
   fetch("/api/facilitator-message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ room_name: roomNameInput.value.trim(), text: text, leader_name: leaderName(), native_language: leaderNativeLanguage.value, attendance_context: { registered_present: registeredPresent, registered_absent: registeredAbsent, guests_present: guestsPresent, registered_present_names: registeredPresentNames, registered_absent_names: registeredAbsentNames, guest_present_names: guestPresentNames } }) })
     .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
     .then(function (result) {
@@ -1403,7 +1423,7 @@ openLeaderRoomButton.addEventListener("click", function () {
   fetch("/api/facilitator/room", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ room_name: roomName })
+    body: JSON.stringify({ room_name: roomName, new_workshop: true })
   })
     .then(function (response) {
       return response.json().then(function (body) { return { ok: response.ok, body: body }; });

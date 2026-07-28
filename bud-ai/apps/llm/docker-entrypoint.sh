@@ -9,7 +9,10 @@ if [ ! -f "${QWEN_MODEL_PATH}" ]; then
     exit 1
   fi
   echo "Downloading Qwen model into ${QWEN_MODEL_DIR}..."
-  curl --fail --location --retry 3 "${QWEN_MODEL_URL}" --output "${QWEN_MODEL_PATH}"
+  temporary_model_path="${QWEN_MODEL_PATH}.download"
+  rm -f "${temporary_model_path}"
+  curl --http1.1 --fail --location --retry 5 --retry-all-errors --retry-delay 2 "${QWEN_MODEL_URL}" --output "${temporary_model_path}"
+  mv "${temporary_model_path}" "${QWEN_MODEL_PATH}"
 fi
 
 exec python qwen_service.py

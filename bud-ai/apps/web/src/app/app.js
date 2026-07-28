@@ -746,6 +746,10 @@ function stopTalking(reason) {
 }
 
 function reportTopviewPresence(connected, microphoneActive) {
+  window.budLearnerMicrophoneActive = Boolean(microphoneActive);
+  window.dispatchEvent(new CustomEvent("bud:microphone-active", {
+    detail: { active: Boolean(microphoneActive) }
+  }));
   fetch("/api/topview/presence", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -978,6 +982,7 @@ function renderLocalizedState(state) {
 
 function getState() {
   fetch("/api/state?participant_id=" + encodeURIComponent(PARTICIPANT_ID) +
+    "&display_name=" + encodeURIComponent(elements.nameInput.value.trim() || PARTICIPANT_ID) +
     "&room=" + encodeURIComponent(elements.roomInput.value.trim() || "BUD-101") +
     "&target=" + encodeURIComponent(selectedNativeLanguage()))
     .then(function (response) {

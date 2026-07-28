@@ -1,11 +1,11 @@
 COMPOSE = docker compose -f docker-compose.yml
-LIVEKIT_NODE_IP ?= $(shell hostname -I 2>/dev/null | awk '{print $$1}')
+LIVEKIT_NODE_IP ?= $(or $(shell hostname -I 2>/dev/null | awk '{print $$1}'),127.0.0.1)
 LIVEKIT_PORT ?= 7880
 LIVEKIT_DIRECT_PORT ?= 7883
 LIVEKIT_TCP_PORT ?= 7881
 LIVEKIT_UDP_PORT ?= 7882
 BUD_PORT ?= 3002
-LIVEKIT_PUBLIC_URL ?= ws://127.0.0.1:$(LIVEKIT_DIRECT_PORT)
+LIVEKIT_PUBLIC_URL ?= wss://$(LIVEKIT_NODE_IP):$(LIVEKIT_PORT)
 QWEN_MODEL_MOUNT ?= qwen-models
 
 .PHONY: up up-d down clean logs ps test

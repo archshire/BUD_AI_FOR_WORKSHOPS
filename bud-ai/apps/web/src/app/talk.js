@@ -17,6 +17,7 @@
       button.innerHTML = '<span class="talk-button-icon" aria-hidden="true">&#127908;</span><span>' + (active ? "Stop talking" : "Talk") + "</span>";
       button.classList.toggle("is-talking", active);
       button.setAttribute("aria-pressed", String(active));
+      if (options.onActiveChange) options.onActiveChange(active);
     }
 
     function closeStream() {

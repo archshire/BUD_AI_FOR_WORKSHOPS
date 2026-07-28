@@ -22,6 +22,9 @@ const DEFAULT_ROOM = "BUD-101";
 const DEFAULT_OBSERVATION_INTERVAL_MS = 60 * 1000;
 const MINIMUM_OBSERVATION_INTERVAL_MS = 15 * 1000;
 const ROOT_PROBLEM_DEFINITION = "It means the **fundamental, underlying cause** of a situation or trouble, rather than just the visible signs or surface symptoms.";
+const ROOT_PROBLEM_DEFINITION_ZH = "“问题的根”或“问题的根源”指的是造成问题的根本原因，也就是藏在表面现象下面、真正让问题发生的原因；不是只看表面的症状。";
+const OPENAI_DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const OPENAI_DEFAULT_MODEL = "chat-latest";
 
 function createServer(options) {
   const runtime = createBudRuntime();
@@ -317,6 +320,9 @@ function createServer(options) {
             runtime.clearRoomConversation(roomName);
             budMemoryStore.clearRoom(roomName);
             cognition.clearConversation(roomName);
+            transcriptLog.clear(roomName);
+            clearRoomDiagnostics(diagnostics, roomName, participantRoomByTarget);
+            delete mediaState[roomName];
             delete attendanceByRoom[roomName];
             delete learnerNamesByRoom[roomName];
           }
@@ -647,7 +653,7 @@ function createServer(options) {
           timeout_ms: 180000
         });
         if (!localReply) {
-          return sendJson(res, { error: "Qwen is unavailable. Check that the local Qwen service is running and try again." }, 503);
+          return sendJson(res, { error: llmProviderLabel() + " is unavailable. Check the LLM provider configuration and try again." }, 503);
         }
         const room = roomDirectory.rooms[roomName] || (roomDirectory.rooms[roomName] = {
           room_name: roomName,
@@ -829,11 +835,12 @@ function createServer(options) {
     if (req.method === "GET" && new URL(req.url, "http://127.0.0.1").pathname === "/api/state") {
       const stateUrl = new URL(req.url, "http://127.0.0.1");
       const participantId = stateUrl.searchParams.get("participant_id") || config.participant_id;
+      const displayName = String(stateUrl.searchParams.get("display_name") || "").trim();
       const roomName = cleanRoomName(stateUrl.searchParams.get("room") || DEFAULT_ROOM);
       const targetLanguage = normalizeLanguage(stateUrl.searchParams.get("target")) || "en";
-      return localizeBudState(learnerState(runtime, participantId, roomName), targetLanguage, budReplyTranslations)
+      return localizeBudState(learnerState(runtime, participantId, roomName, displayName), targetLanguage, budReplyTranslations)
         .then(function (state) { sendJson(res, state); })
-        .catch(function () { sendJson(res, learnerState(runtime, participantId, roomName)); });
+        .catch(function () { sendJson(res, learnerState(runtime, participantId, roomName, displayName)); });
     }
 
     if (req.method === "GET" && new URL(req.url, "http://127.0.0.1").pathname === "/api/transcript") {
@@ -871,9 +878,10 @@ function createServer(options) {
       const groupUrl = new URL(req.url, "http://127.0.0.1");
       const roomName = cleanRoomName(groupUrl.searchParams.get("room")) || DEFAULT_ROOM;
       const participantId = String(groupUrl.searchParams.get("participant_id") || config.participant_id || "").trim();
+      const displayName = String(groupUrl.searchParams.get("display_name") || "").trim();
       const targetLanguage = normalizeLanguage(groupUrl.searchParams.get("target"));
       const requestedScope = String(groupUrl.searchParams.get("scope") || "").trim().toLowerCase();
-      const state = learnerState(runtime, participantId, roomName);
+      const state = learnerState(runtime, participantId, roomName, displayName);
       const messages = (requestedScope === "public"
         ? state.public_messages
         : requestedScope === "group"
@@ -1145,14 +1153,15 @@ function createServer(options) {
           });
           return sendJson(res, { result: summarizeResult(result), state: await localizeBudState(learnerState(runtime, participantId, roomName), nativeLanguage, budReplyTranslations) });
         }
-        if (asksRootProblemMeaning(learnerText)) {
+        if (asksRootProblemMeaning(learnerText) || asksRootProblemMeaning(originalText)) {
+          const replyLanguage = rootProblemReplyLanguage(originalText || learnerText, nativeLanguage);
           runtime.recordPrivateMessage({
             message_id: "message-bud-root-problem-definition-" + Date.now(),
             target_id: participantId,
             sender: "bud",
-            text: ROOT_PROBLEM_DEFINITION,
+            text: replyLanguage === "zh" ? ROOT_PROBLEM_DEFINITION_ZH : ROOT_PROBLEM_DEFINITION,
             provider: "learner-root-problem-definition",
-            language: "en",
+            language: replyLanguage,
             created_at: new Date().toISOString()
           });
           return sendJson(res, {
@@ -1681,6 +1690,19 @@ function createServer(options) {
           return sendJson(res, { result: summarizeResult(result), state: await localizeBudState(facilitatorState(runtime, roomName), nativeLanguage, budReplyTranslations) });
         }
         const attendance = rememberAttendanceContext(attendanceByRoom, roomName, body.attendance_context);
+        if (asksLearnerLanguageQuestion(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-language-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: learnerLanguageReply(text, diagnostics, transcriptLog, roomName),
+            provider: "learner-language-context",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: await localizeBudState(facilitatorState(runtime, roomName), nativeLanguage, budReplyTranslations) });
+        }
         if (asksAttendanceQuestion(text, runtime.getStateSnapshot())) {
           const attendanceReply = attendance ? attendanceCountReply(attendance) : attendanceUnavailableReply();
           runtime.recordPrivateMessage({
@@ -1913,7 +1935,7 @@ function createServer(options) {
           return sendJson(res, { error: "Message text is required" }, 400);
         }
         const requestedGroupId = String(body.group_id || "group-main");
-        const assignedGroupId = resolveParticipantGroup(roomDirectory, roomName, participantId);
+        const assignedGroupId = resolveParticipantGroup(roomDirectory, roomName, participantId, body.sender_display_name);
         const groupId = requestedGroupId === "group-main"
           ? "group-main"
           : assignedGroupId === "group-main"
@@ -1948,7 +1970,7 @@ function createServer(options) {
         sendJson(res, {
           event: event,
           result: summarizeResult(result),
-          state: learnerState(runtime, participantId, roomName)
+          state: learnerState(runtime, participantId, roomName, body.sender_display_name)
         });
       });
     }
@@ -2113,6 +2135,16 @@ function mainRoomName(captionScope) {
   return String(captionScope || DEFAULT_ROOM).split("::")[0] || DEFAULT_ROOM;
 }
 
+function clearRoomDiagnostics(diagnostics, roomName, participantRoomByTarget) {
+  Object.keys(diagnostics.connections || {}).forEach(function (participantId) {
+    const connection = diagnostics.connections[participantId];
+    if (connection && String(connection.room_name || DEFAULT_ROOM) === roomName) {
+      delete diagnostics.connections[participantId];
+      delete participantRoomByTarget[participantId];
+    }
+  });
+}
+
 function checkinRecipients(diagnostics, roomDirectory, captionScope) {
   const scopeParts = String(captionScope || DEFAULT_ROOM).split("::");
   const roomName = cleanRoomName(scopeParts[0]) || DEFAULT_ROOM;
@@ -2261,6 +2293,98 @@ function attendanceCountReply(attendance) {
 
 function attendanceUnavailableReply() {
   return "I do not have a current attendance record for this room, so I cannot confirm the count. Refresh or provide the attendance list and I will use that source.";
+}
+
+function asksLearnerLanguageQuestion(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(students?|learners?|participants?|class|room|anyone|who|which|how many)\b/.test(text) &&
+    /\b(chinese|mandarin|zh|language|speaking|speak|native language|setting|selected)\b/.test(text);
+}
+
+function learnerLanguageReply(question, diagnostics, transcriptLog, roomName) {
+  const requestedLanguage = requestedLearnerLanguage(question) || "zh";
+  const languageLabel = languageDisplayName(requestedLanguage);
+  const connections = diagnostics && diagnostics.connections || {};
+  const liveLearners = Object.keys(connections).map(function (participantId) {
+    return connections[participantId];
+  }).filter(function (participant) {
+    return participant &&
+      participant.role !== "facilitator" &&
+      String(participant.room_name || DEFAULT_ROOM) === roomName;
+  });
+  const selected = liveLearners.filter(function (participant) {
+    return normalizeLanguage(participant.language) === requestedLanguage;
+  });
+  const names = selected.map(function (participant) {
+    return participant.display_name || participant.participant_id;
+  }).filter(Boolean);
+  const spokenEntries = recentSpokenLanguageEntries(transcriptLog, roomName, requestedLanguage);
+  const spokenNames = uniqueNames(spokenEntries.map(function (entry) {
+    return entry.display_name || entry.participant_id;
+  }));
+
+  if (!liveLearners.length && !spokenEntries.length) {
+    return "I do not have live learner presence or recent speech language evidence yet, so I cannot confirm whether anyone has " + languageLabel + " selected or has spoken " + languageLabel + ".";
+  }
+
+  const parts = [];
+  if (names.length) {
+    parts.push(names.length + " live learner" + (names.length === 1 ? " has" : "s have") + " " + languageLabel + " selected: " + names.join(", ") + ".");
+  } else {
+    parts.push("No live learner currently has " + languageLabel + " selected in the presence records I can see.");
+  }
+  if (spokenNames.length) {
+    parts.push("Recent speech/caption evidence also shows " + languageLabel + " from: " + spokenNames.join(", ") + ".");
+  } else {
+    parts.push("I do not see recent spoken " + languageLabel + " in the caption log.");
+  }
+  return parts.join(" ");
+}
+
+function requestedLearnerLanguage(question) {
+  const text = String(question || "").toLowerCase();
+  if (/\b(chinese|mandarin|zh)\b/.test(text)) return "zh";
+  if (/\bspanish|español|es\b/.test(text)) return "es";
+  if (/\bburmese|myanmar|my\b/.test(text)) return "my";
+  if (/\bfrench|français|fr\b/.test(text)) return "fr";
+  if (/\bthai|th\b/.test(text)) return "th";
+  if (/\bmalay|ms\b/.test(text)) return "ms";
+  if (/\benglish|en\b/.test(text)) return "en";
+  return "";
+}
+
+function languageDisplayName(language) {
+  return {
+    en: "English",
+    es: "Spanish",
+    zh: "Chinese",
+    my: "Burmese",
+    fr: "French",
+    th: "Thai",
+    ms: "Malay"
+  }[language] || language;
+}
+
+function recentSpokenLanguageEntries(transcriptLog, roomName, language) {
+  const rooms = transcriptLog.rooms().filter(function (candidate) {
+    return candidate === roomName || candidate.indexOf(roomName + "::") === 0;
+  });
+  return rooms.reduce(function (entries, scope) {
+    return entries.concat(transcriptLog.recent(scope, 30));
+  }, []).filter(function (entry) {
+    return entry.role !== "facilitator" && normalizeLanguage(entry.original_language) === language;
+  });
+}
+
+function uniqueNames(names) {
+  const seen = {};
+  return names.filter(function (name) {
+    const clean = String(name || "").trim();
+    const key = normalizeName(clean);
+    if (!clean || seen[key]) return false;
+    seen[key] = true;
+    return true;
+  });
 }
 
 function asksSensitiveDemographicCount(value) {
@@ -2977,8 +3101,20 @@ function asksLearnerName(value) {
 }
 
 function asksRootProblemMeaning(value) {
-  const text = String(value || "").trim().toLowerCase().replace(/[?.!]+$/, "").trim();
-  return text === "what does the root of the problem mean";
+  const text = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[?.!？。！]+$/, "")
+    .trim();
+  if (text === "what does the root of the problem mean") return true;
+  if (text === "what does root of the problem mean") return true;
+  return /(?:问题|problem).{0,8}(?:根源|根本原因|根|root).{0,12}(?:什么|意思|mean|means)/i.test(text) ||
+    /(?:根源|根本原因|根|root).{0,8}(?:of\s+the\s+)?(?:问题|problem).{0,12}(?:什么|意思|mean|means)/i.test(text);
+}
+
+function rootProblemReplyLanguage(text, nativeLanguage) {
+  if (normalizeLanguage(nativeLanguage) === "zh") return "zh";
+  return /[\u4e00-\u9fff]/.test(String(text || "")) ? "zh" : "en";
 }
 
 function asksLeaderName(value) {
@@ -3194,12 +3330,20 @@ function serviceTarget(host, port, path) {
 
 function collectServiceHealth() {
   const livekitUrl = new URL(process.env.LIVEKIT_SERVER_URL || process.env.LIVEKIT_URL || "http://127.0.0.1:7880");
+  const llmHealth = llmProvider() === "openai"
+    ? Promise.resolve({
+        name: "llm",
+        status: process.env.OPENAI_API_KEY ? "healthy" : "unhealthy",
+        latency_ms: 0,
+        detail: process.env.OPENAI_API_KEY ? "openai configured" : "OPENAI_API_KEY missing"
+      })
+    : checkHttpHealth("llm", serviceTarget(process.env.LLM_HOST, process.env.LLM_PORT || 8790, "/health"), false);
   return Promise.all([
     { name: "bud", result: Promise.resolve({ name: "bud", status: "healthy", latency_ms: 0, detail: "ready" }) },
     { name: "livekit", result: checkHttpHealth("livekit", serviceTarget(livekitUrl.hostname, livekitUrl.port || 80, "/"), true) },
     { name: "whisper", result: checkHttpHealth("whisper", serviceTarget(process.env.STT_HOST, process.env.STT_PORT || 8787, "/health"), false) },
     { name: "translation", result: checkHttpHealth("translation", serviceTarget(process.env.TRANSLATION_HOST, process.env.TRANSLATION_PORT || 8788, "/health"), false) },
-    { name: "qwen", result: checkHttpHealth("qwen", serviceTarget(process.env.LLM_HOST, process.env.LLM_PORT || 8790, "/health"), false) }
+    { name: "llm", result: llmHealth }
   ].map(function (service) { return service.result; })).then(function (results) {
     return results.reduce(function (health, result) {
       health[result.name] = result;
@@ -3228,7 +3372,9 @@ function topviewState(diagnostics, roomDirectory, health) {
       livekit: Boolean(process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET),
       whisper: Boolean(process.env.STT_HOST || process.env.STT_PORT),
       translation: Boolean(process.env.TRANSLATION_HOST || process.env.TRANSLATION_PORT),
-      qwen: Boolean(process.env.LLM_HOST || process.env.LLM_PORT)
+      llm: llmProvider(),
+      qwen: llmProvider() !== "openai" && Boolean(process.env.LLM_HOST || process.env.LLM_PORT),
+      openai: llmProvider() === "openai" && Boolean(process.env.OPENAI_API_KEY)
     },
     services: health || {},
     events: diagnostics.events
@@ -3310,15 +3456,23 @@ function saveRoomDirectory(filePath, roomDirectory) {
   }
 }
 
-function resolveParticipantGroup(roomDirectory, roomName, participantId) {
+function resolveParticipantGroup(roomDirectory, roomName, participantId, displayName) {
   const room = roomDirectory.rooms[roomName] || {};
   const assignments = room.breakout_assignments || [];
   const participantKey = String(participantId || "").trim().toLowerCase();
-  const match = assignments.find(function (assignment) {
+  let match = assignments.find(function (assignment) {
     return (assignment.members || []).some(function (member) {
       return String(member.participant_id || "").trim().toLowerCase() === participantKey;
     });
   });
+  if (!match && displayName) {
+    const nameKey = String(displayName || "").trim().toLowerCase();
+    match = assignments.find(function (assignment) {
+      return (assignment.members || []).some(function (member) {
+        return String(member.display_name || "").trim().toLowerCase() === nameKey;
+      });
+    });
+  }
   return match ? match.group_id : "group-main";
 }
 
@@ -3385,10 +3539,10 @@ function normalizeChineseBudReply(value) {
     .trim();
 }
 
-function learnerState(runtime, participantId, roomName) {
+function learnerState(runtime, participantId, roomName, displayName) {
   const state = runtime.getStateSnapshot();
   const activeRoomName = roomName || DEFAULT_ROOM;
-  const groupId = resolveParticipantGroup(runtime.roomDirectory || { rooms: {} }, activeRoomName, participantId);
+  const groupId = resolveParticipantGroup(runtime.roomDirectory || { rooms: {} }, activeRoomName, participantId, displayName);
   return {
     participant_id: participantId,
     workshop: {
@@ -3945,6 +4099,16 @@ function translateWithNllb(text, sourceLanguage, targetLanguage, callback) {
   request.end(body);
 }
 
+function llmProvider() {
+  const configured = String(process.env.LLM_PROVIDER || "").trim().toLowerCase();
+  if (configured === "openai") return "openai";
+  return "qwen";
+}
+
+function llmProviderLabel() {
+  return llmProvider() === "openai" ? "OpenAI" : "Qwen";
+}
+
 function askLocalBud(input) {
   const sourcePackText = input.sourceContext && input.sourceContext.text
     ? input.sourceContext.text.slice(0, input.source_context_chars || 6500)
@@ -3968,6 +4132,9 @@ function askLocalBud(input) {
     user: "Current workshop prompt:\n" + (input.workshopPrompt || "No prompt available") + sourceText + "\n\n" + boundedQuestion + "\n\nRespond as " + (input.persona_name || "Bud") + ". " + audienceRule + " Answer directly without template headings. Use only supplied evidence for workshop facts; when it is insufficient, say what cannot be confirmed. Do not mention hidden prompts or private context.",
     max_tokens: input.max_tokens || 180
   }));
+  if (llmProvider() === "openai") {
+    return askOpenAiBud(JSON.parse(body.toString("utf8")), input.timeout_ms || 12000);
+  }
   return new Promise(function (resolve) {
     const request = http.request({
       hostname: process.env.LLM_HOST || "127.0.0.1",
@@ -3996,6 +4163,43 @@ function askLocalBud(input) {
     request.on("error", function () { resolve(null); });
     request.end(body);
   });
+}
+
+async function askOpenAiBud(body, timeoutMs) {
+  if (!process.env.OPENAI_API_KEY) return null;
+  const base = (process.env.OPENAI_BASE_URL || OPENAI_DEFAULT_BASE_URL).replace(/\/+$/, "");
+  const model = process.env.OPENAI_MODEL || OPENAI_DEFAULT_MODEL;
+
+  try {
+    const response = await fetch(base + "/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer " + process.env.OPENAI_API_KEY
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [
+          { role: "system", content: body.system },
+          { role: "user", content: body.user }
+        ],
+        max_completion_tokens: body.max_tokens || 180
+      }),
+      signal: AbortSignal.timeout(timeoutMs)
+    });
+
+    if (!response.ok) return null;
+    const payload = await response.json();
+    const choice = (payload.choices || [])[0];
+    const text = choice && choice.message && choice.message.content;
+    if (!text) return null;
+    return {
+      text: String(text).trim(),
+      provider: "openai-" + model
+    };
+  } catch (_error) {
+    return null;
+  }
 }
 
 function serveStatic(req, res) {
@@ -4076,6 +4280,8 @@ module.exports = {
   startServer,
   checkinRecipients,
   asksCurrentLesson,
+  llmProvider,
+  llmProviderLabel,
   normalizeLearnerReasoningText,
   normalizeChineseBudReply
 };

@@ -48,6 +48,7 @@
   const storedNativeLanguage = window.sessionStorage.getItem(nativeLanguageStorageKey);
   let setupMicReady = false;
   let setupDocsReady = false;
+  let learnerMicrophoneActive = Boolean(window.budLearnerMicrophoneActive);
   const runtimeRoomInput = document.querySelector("#room-input");
   const runtimeNameInput = document.querySelector("#name-input");
   if (runtimeRoomInput) runtimeRoomInput.value = query.get("room") || "BUD-101";
@@ -69,6 +70,16 @@
       })
     }).catch(function () {});
   }
+
+  function setLearnerMicrophoneActive(active) {
+    learnerMicrophoneActive = Boolean(active);
+    window.budLearnerMicrophoneActive = learnerMicrophoneActive;
+    reportLearnerPresence(true, learnerMicrophoneActive);
+  }
+
+  window.addEventListener("bud:microphone-active", function (event) {
+    learnerMicrophoneActive = Boolean(event.detail && event.detail.active);
+  });
 
   function updateSetupGate() {
     const privacyReady = Boolean(setupPrivacy && setupPrivacy.checked);
@@ -258,6 +269,7 @@
     Promise.all([
       fetch("/api/facilitator/rooms").then(function (response) { return response.json(); }),
       fetch("/api/group-messages?participant_id=" + encodeURIComponent(participantId) +
+        "&display_name=" + encodeURIComponent(displayName) +
         "&room=" + encodeURIComponent(query.get("room") || "BUD-101") +
         "&scope=group&target=" + encodeURIComponent(learnerLanguage())).then(function (response) { return response.json(); })
     ]).then(function (results) {
@@ -345,6 +357,7 @@
       getDisplayName: function () { return displayName; },
       getNativeLanguage: function () { return (document.querySelector("#native-language-input") || {}).value || "en"; },
       getTargetLanguage: function () { return (document.querySelector("#language-input") || {}).value || "en"; },
+      onActiveChange: setLearnerMicrophoneActive,
       onPosted: refreshBreakout
     });
   }
@@ -410,7 +423,7 @@
   if (breakoutView) window.setInterval(refreshBreakout, 3000);
   updateNavigationLock();
   showTab(query.get("tab") || (activated ? "workshop" : "setup"));
-  reportLearnerPresence(true, false);
-  window.setInterval(function () { reportLearnerPresence(true, false); }, 10000);
+  reportLearnerPresence(true, learnerMicrophoneActive);
+  window.setInterval(function () { reportLearnerPresence(true, learnerMicrophoneActive); }, 10000);
   window.addEventListener("beforeunload", function () { reportLearnerPresence(false, false); });
 }());

@@ -68,6 +68,10 @@ function createTranscriptLog(options) {
     return log.length ? log[log.length - 1].sequence : 0;
   }
 
+  function clear(roomName) {
+    delete rooms[String(roomName || "bud-demo-room")];
+  }
+
   function rooms_() {
     return Object.keys(rooms);
   }
@@ -109,7 +113,7 @@ function createTranscriptLog(options) {
     return { entries: selected.slice(selected.length - lines.length), text: lines.join("\n") };
   }
 
-  return { record, recent, since, latestSequence, context, rooms: rooms_ };
+  return { record, recent, since, latestSequence, clear, context, rooms: rooms_ };
 }
 
 function formatEntry(entry) {
