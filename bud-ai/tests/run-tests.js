@@ -424,6 +424,8 @@ function testLearnerResponseBrief() {
 
 function testCurrentLessonIntentBoundary() {
   assert.equal(asksCurrentLesson("What is today's lesson about?"), true);
+  assert.equal(asksCurrentLesson("What is the workshop about?"), true);
+  assert.equal(asksCurrentLesson("What's the lesson about?"), true);
   assert.equal(asksCurrentLesson("Summarize the current workshop material"), true);
   assert.equal(asksCurrentLesson("If the workshop is short on time, what can I trim?"), false);
   assert.equal(asksCurrentLesson("What must I not cut from this workshop?"), false);

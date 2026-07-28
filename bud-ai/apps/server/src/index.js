@@ -2825,6 +2825,7 @@ function titleCaseName(value) {
 function asksCurrentLesson(value) {
   const text = String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
   return (
+    /\bwhat(?:'s| is)?\s+(?:the\s+)?(?:lesson|topic|learning plan|workshop)\s+about\b/.test(text) ||
     /\b(?:what(?:'s| is)?|which)\s+(?:is\s+)?(?:today(?:'s)?|the\s+current|this)\s+(?:lesson|topic|learning plan|workshop)(?:\s+about)?\b/.test(text) ||
     /\b(?:what(?:'s| is)?|which)\s+(?:lesson|topic|learning plan|workshop)\s+(?:are we|is|are|comes)\b/.test(text) ||
     /\b(?:tell me about|summari[sz]e|recap)\s+(?:today(?:'s)?|the\s+current|this)?\s*(?:lesson|topic|learning plan|workshop|workshop material|source material)\b/.test(text)
