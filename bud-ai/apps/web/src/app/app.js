@@ -57,6 +57,7 @@ let learningPlanTasks = [];
 let currentDocumentPage = 0;
 let completedTasks = {};
 let taskResponses = {};
+let expandedLearningPlanTasks = {};
 const SILENCE_TIMEOUT_MS = 15000;
 let speechVadContext = null;
 let speechVadAnalyser = null;
@@ -130,9 +131,11 @@ function boot() {
       });
     });
   }
+  if (elements.nativeLanguageInput) elements.nativeLanguageInput.addEventListener("change", pollSharedMessages);
 
   getState();
   window.setInterval(getState, 3000);
+  window.setInterval(pollSharedMessages, 3000);
   window.setInterval(refreshWorkshopMaterial, 5000);
   updateBudName();
   applyLearnerBackground();
@@ -365,9 +368,35 @@ function renderLearningPlanTasks() {
   learningPlanTasks.forEach(function (task, index) {
     const item = document.createElement("article");
     const taskId = taskResponseId(index);
-    item.className = "learning-plan-task" + (index === currentDocumentPage ? " is-current" : "") + (completedTasks[taskId] ? " is-complete" : "");
+    const isComplete = Boolean(taskResponses[taskId] || completedTasks[taskId]);
+    const isExpanded = Boolean(expandedLearningPlanTasks[taskId]);
+    item.className = "learning-plan-task" + (index === currentDocumentPage ? " is-current" : "") + (isComplete ? " is-complete" : "");
+    const summary = document.createElement("div");
+    summary.className = "learning-plan-task-summary";
+    summary.setAttribute("role", "button");
+    summary.setAttribute("tabindex", "0");
+    summary.setAttribute("aria-expanded", String(isExpanded));
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = isComplete;
+    checkbox.disabled = true;
+    checkbox.setAttribute("aria-hidden", "true");
     const label = document.createElement("strong");
     label.textContent = "Task " + (index + 1);
+    summary.append(checkbox, label);
+    summary.addEventListener("click", function () {
+      expandedLearningPlanTasks[taskId] = !expandedLearningPlanTasks[taskId];
+      renderLearningPlanTasks();
+    });
+    summary.addEventListener("keydown", function (event) {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      expandedLearningPlanTasks[taskId] = !expandedLearningPlanTasks[taskId];
+      renderLearningPlanTasks();
+    });
+    const details = document.createElement("div");
+    details.className = "learning-plan-task-details";
+    details.hidden = !isExpanded;
     const text = document.createElement("p");
     text.textContent = task.text;
     const section = document.createElement("span");
@@ -392,7 +421,8 @@ function renderLearningPlanTasks() {
       button.addEventListener("click", function () { submitTaskComprehension(task, index, option.response); });
       actions.appendChild(button);
     });
-    item.append(label, text, section, actions);
+    details.append(text, section, actions);
+    item.append(summary, details);
     elements.learningPlanTasks.appendChild(item);
   });
 }
@@ -404,6 +434,7 @@ function taskResponseId(index) {
 function submitTaskComprehension(task, index, response) {
   const taskId = taskResponseId(index);
   taskResponses[taskId] = response;
+  completedTasks[taskId] = true;
   renderLearningPlanTasks();
   fetch("/api/task-comprehension-response", {
     method: "POST",
@@ -919,7 +950,7 @@ function renderState(state) {
   renderWorkshopTimer(state.workshop_control);
 
   renderMessages(state.private_messages);
-  renderSharedMessages(state.public_messages || []);
+  pollSharedMessages();
   const privateMessages = state.private_messages || [];
   const latestPrivateMessage = privateMessages[privateMessages.length - 1];
   if (elements.budThinking) {
@@ -935,8 +966,20 @@ function renderWorkshopTimer(control) {
   elements.workshopTimer.className = control.status === "ended" ? "timer-ended" : "";
 }
 
+function pollSharedMessages() {
+  if (!elements.sharedMessages) return;
+  const roomName = elements.roomInput.value.trim() || "BUD-101";
+  const targetLanguage = elements.nativeLanguageInput.value || "en";
+  fetch("/api/group-messages?room=" + encodeURIComponent(roomName) + "&target=" + encodeURIComponent(targetLanguage))
+    .then(function (response) { return response.json(); })
+    .then(function (payload) { renderSharedMessages(payload.messages || []); })
+    .catch(function () {});
+}
+
 function renderSharedMessages(messages) {
   if (!elements.sharedMessages) return;
+  const atBottom = elements.sharedMessages.scrollTop + elements.sharedMessages.clientHeight >=
+    elements.sharedMessages.scrollHeight - 8;
   elements.sharedMessages.innerHTML = "";
   const recentMessages = messages.slice(-50);
   if (!recentMessages.length) {
@@ -946,23 +989,38 @@ function renderSharedMessages(messages) {
     elements.sharedMessages.appendChild(empty);
     return;
   }
-  recentMessages.forEach(function (message) {
-    const sender = message.sender_id === PARTICIPANT_ID
-      ? "You"
-      : (message.sender_display_name || message.sender_id || "Workshop");
-    appendSharedMessage(sender + ": " + message.text);
-  });
+  recentMessages.forEach(appendSharedMessage);
+  if (atBottom) elements.sharedMessages.scrollTop = elements.sharedMessages.scrollHeight;
 }
 
-function appendSharedMessage(text) {
+function appendSharedMessage(message) {
   if (!elements.sharedMessages) return;
   const empty = elements.sharedMessages.querySelector(".empty");
   if (empty) empty.remove();
-  const item = document.createElement("div");
+  const item = document.createElement("article");
   item.className = "shared-message";
-  item.textContent = text;
+
+  const sender = document.createElement("span");
+  sender.className = "shared-message-sender";
+  sender.textContent = (message.sender_id === PARTICIPANT_ID ? "You" : message.display_name || message.sender_display_name || message.sender_id || "Workshop") +
+    (message.role === "facilitator" ? " (facilitator)" : "");
+  item.appendChild(sender);
+
+  const original = document.createElement("p");
+  original.className = "shared-message-original";
+  original.lang = message.original_language || message.language || "";
+  original.textContent = message.original_text || message.text || "";
+  item.appendChild(original);
+
+  if (message.translated_text) {
+    const translated = document.createElement("p");
+    translated.className = "shared-message-translated";
+    translated.lang = message.target_language || "";
+    translated.textContent = message.translated_text;
+    item.appendChild(translated);
+  }
+
   elements.sharedMessages.appendChild(item);
-  elements.sharedMessages.scrollTop = elements.sharedMessages.scrollHeight;
 }
 
 function appendCaption(text, label) {
@@ -1018,7 +1076,9 @@ function renderMessages(messages) {
   messagesToRender.forEach(function (message) {
     const item = document.createElement("article");
     const isLearner = message.sender === "learner";
-    item.className = "leader-bud-message " + (isLearner ? "message-user" : "message-bud");
+    const isCheckin = message.message_type === "periodic_summary";
+    item.className = "leader-bud-message " + (isLearner ? "message-user" : "message-bud") +
+      (isCheckin ? " message-checkin" : "");
     const heading = document.createElement("div");
     heading.className = "leader-bud-message-heading";
     if (!isLearner) {
@@ -1030,7 +1090,7 @@ function renderMessages(messages) {
     const sender = document.createElement("strong");
     sender.textContent = isLearner
       ? "You"
-      : message.message_type === "periodic_summary" ? budName() + " / Check-in summary" : budName();
+      : isCheckin ? budName() + " / Check-in summary" : budName();
     heading.appendChild(sender);
     const text = document.createElement("p");
     text.textContent = message.text;

@@ -47,6 +47,8 @@ const roomChatMessages = document.querySelector("#room-chat-messages");
 const roomChatForm = document.querySelector("#room-chat-form");
 const roomChatInput = document.querySelector("#room-chat-input");
 const roomTalkButton = document.querySelector("#room-talk");
+const roomCaptionList = document.querySelector("#room-caption-list");
+const clearRoomCaptions = document.querySelector("#clear-room-captions");
 const livePlanPanel = document.querySelector("#live-plan-panel");
 const liveLearningPlan = document.querySelector("#live-learning-plan");
 const livePlanEmpty = document.querySelector("#live-plan-empty");
@@ -56,6 +58,8 @@ let workshopRoom = null;
 let roomPrepared = false;
 let leaderBudLaunched = false;
 let liveGuestParticipants = [];
+let roomCaptionFeed = null;
+let breakoutCaptionFeeds = {};
 const demoRegisteredParticipants = [
   { name: "Aisha Rahman", email: "aisha.rahman@example.com", present: true },
   { name: "Daniel Tan", email: "daniel.tan@example.com", present: true },
@@ -82,8 +86,27 @@ const demoGuestParticipants = [
 ];
 let micAnalyserFrame = null;
 let micTestActive = false;
+let leaderMicrophoneLive = false;
+let leaderSpeechActive = false;
+let leaderSpeechStream = null;
+let leaderSpeechRecorder = null;
+let leaderSpeechSequence = 0;
+let leaderVadContext = null;
+let leaderVadAnalyser = null;
+let leaderVadData = null;
+let leaderVadTimer = null;
+let leaderVadEnabled = false;
+let leaderHeardInChunk = false;
+let leaderFirstHeardAt = 0;
+let leaderLastHeardAt = 0;
+let leaderChunkStartedAt = 0;
 let planTimerInterval = null;
 let planStartedAt = 0;
+const SPEECH_LEVEL_THRESHOLD = 0.06;
+const SPEECH_PAUSE_MS = 700;
+const SPEECH_MAX_UTTERANCE_MS = 8000;
+const SPEECH_IDLE_RECYCLE_MS = 6000;
+const SPEECH_VAD_INTERVAL_MS = 50;
 
 const queryRoomName = new URLSearchParams(window.location.search).get("room");
 if (queryRoomName) roomNameInput.value = queryRoomName;
@@ -171,7 +194,13 @@ leaderNameInput.addEventListener("input", function () {
 updateLeaderIdentity();
 updateSetupSequence();
 
-leaderNativeLanguage.addEventListener("change", updateSetupSequence);
+leaderNativeLanguage.addEventListener("change", function () {
+  updateSetupSequence();
+  if (roomCaptionFeed) roomCaptionFeed.replay();
+  Object.keys(breakoutCaptionFeeds).forEach(function (groupId) {
+    breakoutCaptionFeeds[groupId].replay();
+  });
+});
 
 function maskedEmail(email) {
   const parts = email.split("@");
@@ -263,9 +292,10 @@ function renderAvailableParticipants(assignments) {
 
 function renderBreakoutRooms(assignments, manual) {
   breakoutRooms.innerHTML = "";
+  resetBreakoutCaptionFeeds();
   renderAvailableParticipants(assignments);
-  const totalRooms = assignments.length;
   assignments.forEach(function (members, index) {
+    const groupId = "breakout-room-" + (index + 1);
     const room = document.createElement("article");
     room.className = "breakout-room";
     const title = document.createElement("h4");
@@ -323,9 +353,50 @@ function renderBreakoutRooms(assignments, manual) {
     });
     table.appendChild(body);
     room.appendChild(table);
+    const captions = document.createElement("section");
+    captions.className = "captions leader-breakout-captions";
+    const captionHead = document.createElement("div");
+    captionHead.className = "subsection-heading";
+    const captionTitle = document.createElement("h4");
+    captionTitle.textContent = "Live captions";
+    const clearButton = document.createElement("button");
+    clearButton.className = "secondary-button";
+    clearButton.type = "button";
+    clearButton.textContent = "Clear";
+    captionHead.appendChild(captionTitle);
+    captionHead.appendChild(clearButton);
+    const captionList = document.createElement("div");
+    captionList.className = "caption-list";
+    captionList.setAttribute("aria-live", "polite");
+    captionList.innerHTML = '<p class="empty">Captions will appear when this breakout speaks.</p>';
+    captions.appendChild(captionHead);
+    captions.appendChild(captionList);
+    room.appendChild(captions);
     breakoutRooms.appendChild(room);
+    attachBreakoutCaptionFeed(groupId, captionList, clearButton);
   });
   persistBreakoutAssignments(assignments);
+}
+
+function resetBreakoutCaptionFeeds() {
+  Object.keys(breakoutCaptionFeeds).forEach(function (groupId) {
+    breakoutCaptionFeeds[groupId].stop();
+  });
+  breakoutCaptionFeeds = {};
+}
+
+function attachBreakoutCaptionFeed(groupId, captionList, clearButton) {
+  if (!window.BudCaptionFeed) return;
+  breakoutCaptionFeeds[groupId] = window.BudCaptionFeed({
+    list: captionList,
+    clearButton: clearButton,
+    participantId: "facilitator-1",
+    getRoomName: function () { return roomNameInput.value.trim() || "BUD-101"; },
+    getGroupId: function () { return groupId; },
+    getTargetLanguage: function () { return leaderNativeLanguage.value || "en"; },
+    emptyText: "Captions will appear when this breakout speaks."
+  });
+  breakoutCaptionFeeds[groupId].start();
 }
 
 function persistBreakoutAssignments(assignments) {
@@ -506,17 +577,19 @@ function submitChatOnEnter(event) {
 
 roomChatInput.addEventListener("keydown", submitChatOnEnter);
 
-if (window.BudTalk && roomTalkButton) {
-  window.BudTalk({
-    button: roomTalkButton,
-    status: document.querySelector("#room-talk-status"),
+if (roomTalkButton) roomTalkButton.addEventListener("click", toggleLeaderMainRoomTalk);
+
+if (window.BudCaptionFeed && roomCaptionList) {
+  roomCaptionFeed = window.BudCaptionFeed({
+    list: roomCaptionList,
+    clearButton: clearRoomCaptions,
     participantId: "facilitator-1",
     getRoomName: function () { return roomNameInput.value.trim() || "BUD-101"; },
     getGroupId: function () { return "group-main"; },
-    getNativeLanguage: function () { return leaderNativeLanguage.value || "en"; },
     getTargetLanguage: function () { return leaderNativeLanguage.value || "en"; },
-    onPosted: function (body) { renderRoomChat(body.state && body.state.public_messages || []); }
+    emptyText: "Captions will appear when someone speaks in the workshop."
   });
+  roomCaptionFeed.start();
 }
 
 renderAttendance();
@@ -772,15 +845,22 @@ function setMicStatus(message, isError) {
   micDetail.classList.toggle("mic-active", !isError);
 }
 
-connectButton.addEventListener("click", function () {
+function connectLeaderAudioRoom() {
   if (!window.LivekitClient) {
     setMicStatus("LiveKit client is unavailable. Start the workshop services first.", true);
-    return;
+    return Promise.reject(new Error("LiveKit client is unavailable. Start the workshop services first."));
+  }
+  if (isLeaderRoomConnected()) return Promise.resolve(workshopRoom);
+  if (workshopRoom && workshopRoom.disconnect) {
+    try {
+      workshopRoom.disconnect();
+    } catch (error) {}
+    workshopRoom = null;
   }
   connectButton.disabled = true;
   connectButton.textContent = "Connecting...";
   setMicStatus("Requesting room access...", false);
-  fetch("/api/livekit/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ room_name: roomNameInput.value.trim() || "BUD-101", participant_id: "facilitator-1", name: leaderName(), role: "facilitator" }) })
+  return fetch("/api/livekit/token", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ room_name: roomNameInput.value.trim() || "BUD-101", participant_id: "facilitator-1", name: leaderName(), role: "facilitator" }) })
     .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
     .then(function (result) {
       if (!result.ok) throw new Error(result.body.error || "Unable to connect to the workshop");
@@ -788,12 +868,51 @@ connectButton.addEventListener("click", function () {
       return workshopRoom.connect(result.body.url, result.body.token);
     })
     .then(function () {
+      return waitForLeaderRoomConnected();
+    })
+    .then(function () {
       connectButton.textContent = "Connected for test";
       micButton.disabled = false;
       setMicStatus("Connected. Start the microphone test; another client in the room can receive the published audio.", false);
       updateSetupSequence();
+      return workshopRoom;
     })
-    .catch(function (error) { connectButton.disabled = false; connectButton.textContent = "Connect for test"; setMicStatus(error.message, true); });
+    .catch(function (error) {
+      connectButton.disabled = false;
+      connectButton.textContent = "Connect for test";
+      setMicStatus(error.message, true);
+      throw error;
+    });
+}
+
+function isLeaderRoomConnected() {
+  if (!workshopRoom) return false;
+  const connectedState = window.LivekitClient && window.LivekitClient.ConnectionState &&
+    (window.LivekitClient.ConnectionState.Connected || window.LivekitClient.ConnectionState.CONNECTED);
+  return workshopRoom.state === "connected" || workshopRoom.state === "CONNECTED" ||
+    Boolean(connectedState && workshopRoom.state === connectedState);
+}
+
+function waitForLeaderRoomConnected() {
+  if (isLeaderRoomConnected()) return Promise.resolve(workshopRoom);
+  return new Promise(function (resolve, reject) {
+    const startedAt = Date.now();
+    const timer = window.setInterval(function () {
+      if (isLeaderRoomConnected()) {
+        window.clearInterval(timer);
+        resolve(workshopRoom);
+        return;
+      }
+      if (Date.now() - startedAt > 5000) {
+        window.clearInterval(timer);
+        reject(new Error("LiveKit connected slowly. Try Talk in main room again."));
+      }
+    }, 100);
+  });
+}
+
+connectButton.addEventListener("click", function () {
+  connectLeaderAudioRoom().catch(function () {});
 });
 
 micButton.addEventListener("click", function () {
@@ -832,6 +951,244 @@ micButton.addEventListener("click", function () {
     })
     .catch(function (error) { micButton.disabled = false; setMicStatus("Microphone test failed: " + error.message + " Check browser permission and use localhost or HTTPS.", true); });
 });
+
+function toggleLeaderMainRoomTalk() {
+  if (leaderMicrophoneLive) {
+    stopLeaderMainRoomTalk();
+    return;
+  }
+  roomTalkButton.disabled = true;
+  setRoomTalkStatus("Connecting microphone to the main room...");
+  connectLeaderAudioRoom()
+    .then(enableLeaderMicrophone)
+    .then(function (publication) {
+      micTestActive = false;
+      leaderMicrophoneLive = true;
+      roomTalkButton.disabled = false;
+      roomTalkButton.textContent = "Mute workshop mic";
+      roomTalkButton.classList.add("is-talking");
+      roomTalkButton.setAttribute("aria-pressed", "true");
+      setRoomTalkStatus("Microphone live in the main room. Learners can hear you and captions are running.");
+      setMicStatus("Microphone live in the main room.", false);
+      reportLeaderPresence(true, true);
+      startMicMeter(publication);
+      startLeaderSpeechCapture(publication);
+    })
+    .catch(function (error) {
+      roomTalkButton.disabled = false;
+      setRoomTalkStatus(error.message);
+    });
+}
+
+function enableLeaderMicrophone() {
+  return workshopRoom.localParticipant.setMicrophoneEnabled(true)
+    .catch(function (error) {
+      if (error && /engine not connected/i.test(error.message || "")) {
+        if (workshopRoom && workshopRoom.disconnect) {
+          try {
+            workshopRoom.disconnect();
+          } catch (disconnectError) {}
+        }
+        workshopRoom = null;
+        return connectLeaderAudioRoom().then(function () {
+          return workshopRoom.localParticipant.setMicrophoneEnabled(true);
+        });
+      }
+      throw error;
+    });
+}
+
+function stopLeaderMainRoomTalk() {
+  leaderMicrophoneLive = false;
+  leaderSpeechActive = false;
+  if (leaderSpeechRecorder && leaderSpeechRecorder.state === "recording") leaderSpeechRecorder.stop();
+  stopLeaderVad();
+  if (workshopRoom) workshopRoom.localParticipant.setMicrophoneEnabled(false).catch(function () {});
+  if (micAnalyserFrame) {
+    window.cancelAnimationFrame(micAnalyserFrame);
+    micAnalyserFrame = null;
+  }
+  Array.prototype.forEach.call(micMeter.children, function (bar) {
+    bar.classList.remove("active");
+    bar.style.height = "6px";
+  });
+  roomTalkButton.textContent = "Unmute workshop mic";
+  roomTalkButton.classList.remove("is-talking");
+  roomTalkButton.setAttribute("aria-pressed", "false");
+  setRoomTalkStatus("Talk is off.");
+  setMicStatus("Microphone muted.", false);
+  reportLeaderPresence(true, false);
+  flushLeaderSentence();
+}
+
+function setRoomTalkStatus(message) {
+  const status = document.querySelector("#room-talk-status");
+  if (status) status.textContent = message;
+}
+
+function reportLeaderSpeaking() {
+  fetch("/api/transcribe/speaking", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      participant_id: "facilitator-1",
+      speech_sequence: leaderSpeechSequence
+    })
+  }).catch(function () {});
+}
+
+function flushLeaderSentence() {
+  fetch("/api/transcribe/flush", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      participant_id: "facilitator-1",
+      room_name: roomNameInput.value.trim() || "BUD-101",
+      native_language: leaderNativeLanguage.value || "en",
+      target_language: leaderNativeLanguage.value || "en"
+    })
+  }).catch(function () {});
+}
+
+function reportLeaderPresence(connected, microphoneActive) {
+  fetch("/api/topview/presence", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      connected: connected,
+      participant_id: "facilitator-1",
+      display_name: leaderName(),
+      role: "facilitator",
+      room_name: roomNameInput.value.trim() || "BUD-101",
+      language: leaderNativeLanguage.value || "en",
+      microphone_active: microphoneActive
+    })
+  }).catch(function () {});
+}
+
+function startLeaderSpeechCapture(publication) {
+  if (!window.MediaRecorder || leaderSpeechActive) return;
+  const activePublication = publication || (workshopRoom.localParticipant.getTrackPublication
+    ? workshopRoom.localParticipant.getTrackPublication("microphone")
+    : null);
+  const mediaTrack = activePublication && activePublication.track && activePublication.track.mediaStreamTrack;
+  const streamPromise = mediaTrack
+    ? Promise.resolve(new MediaStream([mediaTrack]))
+    : navigator.mediaDevices && navigator.mediaDevices.getUserMedia
+      ? navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+      : Promise.reject(new Error("Browser microphone access is unavailable. Use HTTPS or localhost and allow microphone permission."));
+  streamPromise.then(function (stream) {
+    leaderSpeechStream = stream;
+    leaderSpeechActive = true;
+    startLeaderVad(stream);
+    recordLeaderSpeechChunk();
+  }).catch(function (error) {
+    setRoomTalkStatus("Speech capture unavailable: " + error.message);
+  });
+}
+
+function startLeaderVad(stream) {
+  stopLeaderVad();
+  leaderVadEnabled = false;
+  if (!window.AudioContext) return;
+  leaderVadContext = new window.AudioContext();
+  leaderVadAnalyser = leaderVadContext.createAnalyser();
+  leaderVadAnalyser.fftSize = 256;
+  leaderVadContext.createMediaStreamSource(stream).connect(leaderVadAnalyser);
+  leaderVadData = new Uint8Array(leaderVadAnalyser.frequencyBinCount);
+  leaderVadEnabled = true;
+  leaderVadTimer = window.setInterval(function () {
+    if (!leaderSpeechActive) return;
+    leaderVadAnalyser.getByteFrequencyData(leaderVadData);
+    let total = 0;
+    leaderVadData.forEach(function (value) { total += value; });
+    const level = total / leaderVadData.length / 48;
+    const now = Date.now();
+    if (level >= SPEECH_LEVEL_THRESHOLD) {
+      if (!leaderHeardInChunk) {
+        leaderFirstHeardAt = now;
+        reportLeaderSpeaking();
+      }
+      leaderHeardInChunk = true;
+      leaderLastHeardAt = now;
+    }
+    if (!leaderSpeechRecorder || leaderSpeechRecorder.state !== "recording") return;
+    const elapsed = now - leaderChunkStartedAt;
+    if (leaderHeardInChunk) {
+      if (now - leaderLastHeardAt >= SPEECH_PAUSE_MS || elapsed >= SPEECH_MAX_UTTERANCE_MS) {
+        leaderSpeechRecorder.stop();
+      }
+    } else if (elapsed >= SPEECH_IDLE_RECYCLE_MS) {
+      leaderSpeechRecorder.stop();
+    }
+  }, SPEECH_VAD_INTERVAL_MS);
+}
+
+function stopLeaderVad() {
+  if (leaderVadTimer) {
+    window.clearInterval(leaderVadTimer);
+    leaderVadTimer = null;
+  }
+  if (leaderVadContext) {
+    leaderVadContext.close().catch(function () {});
+    leaderVadContext = null;
+  }
+  leaderVadAnalyser = null;
+  leaderVadData = null;
+}
+
+function recordLeaderSpeechChunk() {
+  if (!leaderSpeechActive) return;
+  leaderSpeechRecorder = new MediaRecorder(leaderSpeechStream, { mimeType: "audio/webm" });
+  leaderSpeechRecorder.ondataavailable = function (event) {
+    if (leaderVadEnabled && !leaderHeardInChunk) return;
+    if (!event.data || event.data.size === 0) return;
+    const speechSequence = leaderSpeechSequence;
+    const uploadedAt = Date.now();
+    fetch("/api/transcribe", {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/webm",
+        "X-Participant-Id": "facilitator-1",
+        "X-Display-Name": leaderName(),
+        "X-Room-Name": roomNameInput.value.trim() || "BUD-101",
+        "X-Group-Id": "group-main",
+        "X-Native-Language": leaderNativeLanguage.value || "en",
+        "X-Target-Language": leaderNativeLanguage.value || "en",
+        "X-Speech-Sequence": String(speechSequence),
+        "X-Speech-Lead-Ms": String(Math.max(0, uploadedAt - (leaderFirstHeardAt || uploadedAt))),
+        "X-Speech-Silence-Ms": String(Math.max(0, uploadedAt - (leaderLastHeardAt || uploadedAt)))
+      },
+      body: event.data
+    }).then(function (response) {
+      return response.json();
+    }).then(function (payload) {
+      if (payload.transcript && payload.transcript.ignored) {
+        setRoomTalkStatus("Speech ignored because it was not detected as the selected language.");
+        return;
+      }
+      if (payload.transcript && payload.transcript.text) {
+        setRoomTalkStatus("Captioned: " + payload.transcript.text);
+      }
+    }).catch(function () {
+      setRoomTalkStatus("Whisper service unavailable");
+    });
+  };
+  leaderSpeechRecorder.onstop = function () {
+    if (leaderSpeechActive) recordLeaderSpeechChunk();
+  };
+  leaderHeardInChunk = false;
+  leaderChunkStartedAt = Date.now();
+  leaderLastHeardAt = leaderChunkStartedAt;
+  leaderFirstHeardAt = 0;
+  leaderSpeechSequence += 1;
+  leaderSpeechRecorder.start();
+  if (!leaderVadEnabled) {
+    window.setTimeout(function () {
+      if (leaderSpeechRecorder && leaderSpeechRecorder.state === "recording") leaderSpeechRecorder.stop();
+    }, 4000);
+  }
+}
 
 function startMicMeter(publication) {
   const mediaTrack = publication && publication.track && publication.track.mediaStreamTrack;

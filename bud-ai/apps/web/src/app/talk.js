@@ -36,6 +36,9 @@
         headers: {
           "Content-Type": blob.type || "audio/webm",
           "X-Participant-Id": participantId,
+          "X-Display-Name": options.getDisplayName ? options.getDisplayName() : participantId,
+          "X-Room-Name": options.getRoomName(),
+          "X-Group-Id": options.getGroupId ? options.getGroupId() : "group-main",
           "X-Native-Language": nativeLanguage,
           "X-Target-Language": targetLanguage,
           "X-Speech-Sequence": String(Date.now())
@@ -117,5 +120,118 @@
     button.addEventListener("click", start);
     setButtonState();
     return { start: start, stop: stop };
+  };
+
+  window.BudCaptionFeed = function (options) {
+    const list = options.list;
+    const clearButton = options.clearButton;
+    const getRoomName = options.getRoomName;
+    const getGroupId = options.getGroupId || function () { return "group-main"; };
+    const getTargetLanguage = options.getTargetLanguage || function () { return "en"; };
+    const currentParticipantId = options.participantId || "";
+    const emptyText = options.emptyText || "Captions will appear when someone speaks.";
+    const pollMs = options.pollMs || 900;
+    let latestSequence = 0;
+    let nodes = {};
+    let timer = null;
+
+    function start() {
+      if (!list || timer) return;
+      poll();
+      timer = window.setInterval(poll, pollMs);
+    }
+
+    function stop() {
+      if (!timer) return;
+      window.clearInterval(timer);
+      timer = null;
+    }
+
+    function replay() {
+      latestSequence = 0;
+      clear();
+      poll();
+    }
+
+    function poll() {
+      if (!list) return;
+      const roomName = getRoomName && getRoomName();
+      if (!roomName) return;
+      const query = "room=" + encodeURIComponent(roomName) +
+        "&group_id=" + encodeURIComponent(getGroupId() || "group-main") +
+        "&after=" + latestSequence +
+        "&target=" + encodeURIComponent(getTargetLanguage() || "en");
+      fetch("/api/transcript/live?" + query)
+        .then(function (response) { return response.json(); })
+        .then(function (payload) {
+          (payload.entries || []).forEach(upsert);
+          const nextAfter = Number(payload.next_after);
+          if (isFinite(nextAfter) && nextAfter > latestSequence) latestSequence = nextAfter;
+        })
+        .catch(function () {});
+    }
+
+    function upsert(entry) {
+      const existing = nodes[entry.entry_id];
+      const item = build(entry);
+      nodes[entry.entry_id] = item;
+      if (existing && existing.parentNode) {
+        existing.parentNode.replaceChild(item, existing);
+        return;
+      }
+      const empty = list.querySelector(".empty");
+      if (empty) empty.remove();
+      list.appendChild(item);
+      list.scrollTop = list.scrollHeight;
+    }
+
+    function build(entry) {
+      const item = document.createElement("article");
+      item.className = "caption";
+      const head = document.createElement("div");
+      head.className = "caption-head";
+      const label = document.createElement("span");
+      label.className = "caption-label";
+      const isSelf = entry.participant_id === currentParticipantId;
+      label.textContent = (isSelf ? "You" : entry.display_name || entry.participant_id || "Speaker") +
+        (entry.role === "facilitator" ? " (facilitator)" : " (learner)");
+      const time = document.createElement("time");
+      time.className = "caption-time";
+      const spokenAt = new Date(entry.created_at);
+      time.dateTime = spokenAt.toISOString();
+      time.textContent = spokenAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      head.appendChild(label);
+      head.appendChild(time);
+      item.appendChild(head);
+
+      if (entry.translated_text) {
+        const translated = document.createElement("p");
+        translated.textContent = entry.translated_text;
+        item.appendChild(translated);
+        const original = document.createElement("p");
+        original.className = "caption-original";
+        original.textContent = entry.original_text;
+        item.appendChild(original);
+      } else {
+        const originalOnly = document.createElement("p");
+        originalOnly.textContent = entry.original_text;
+        if (entry.translation_pending) originalOnly.className = "caption-untranslated";
+        item.appendChild(originalOnly);
+      }
+      return item;
+    }
+
+    function clear() {
+      if (!list) return;
+      nodes = {};
+      list.innerHTML = "";
+      const empty = document.createElement("p");
+      empty.className = "empty";
+      empty.textContent = emptyText;
+      list.appendChild(empty);
+    }
+
+    if (clearButton) clearButton.addEventListener("click", replay);
+    return { start: start, stop: stop, replay: replay, poll: poll, clear: clear };
   };
 }());

@@ -54,10 +54,18 @@ services:
       LLM_PORT: 8790
       LLM_THREADS: ${LLM_THREADS:-12}
       QWEN_MODEL_DIR: /models/qwen
-      QWEN_MODEL_PATH: /models/qwen/${QWEN_MODEL_FILE:-Qwen3-1.7B-Q4_K_M.gguf}
-      QWEN_MODEL_URL: ${QWEN_MODEL_URL:-https://huggingface.co/ggml-org/Qwen3-1.7B-GGUF/resolve/main/Qwen3-1.7B-Q4_K_M.gguf?download=true}
+      QWEN_MODEL_PATH: /models/qwen/${QWEN_MODEL_FILE:-Qwen3-1.7B.Q4_K_M.gguf}
+      # Keep filename, source, and container path together here. The pinned URL
+      # makes clean model-volume downloads reproducible across rebuilds.
+      QWEN_MODEL_URL: ${QWEN_MODEL_URL:-https://huggingface.co/unsloth/Qwen3-1.7B-GGUF/resolve/cc27747d7419139e44ba97777c2f2fd5dca92ee1/Qwen3-1.7B-Q4_K_M.gguf?download=true}
     volumes:
-      - ${QWEN_MODEL_MOUNT:-/tmp/bud-qwen-model}:/models/qwen
+      - ${QWEN_MODEL_MOUNT:-qwen-models}:/models/qwen
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null http://127.0.0.1:8790/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 600s
 
   bud:
     build:
@@ -81,6 +89,7 @@ services:
       TRANSLATION_PORT: 8788
       LLM_HOST: qwen
       LLM_PORT: 8790
+      CHECKIN_WORD_INTERVAL: ${CHECKIN_WORD_INTERVAL:-500}
       SOURCE_PACK_ROOT: /app/data/source-packs
       BUD_STATE_FILE: /app/data/source-packs/workshop-state.json
       BUD_MEMORY_ROOT: /app/data/source-packs/bud-memory

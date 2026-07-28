@@ -4,7 +4,7 @@
   const promptBand = document.querySelector(".prompt-band");
   const roomControls = document.querySelector(".room-controls");
   const roomFeed = document.querySelector("#room-feed");
-  const workshopSections = Array.prototype.slice.call(document.querySelectorAll(".document-workspace, .learning-plan-panel, .activity, .shared-room"));
+  const workshopSections = Array.prototype.slice.call(document.querySelectorAll(".workshop-docs-layout, .public-captions-panel, .activity, .shared-room"));
   const messages = document.querySelector("#breakout-messages");
   const members = document.querySelector("#breakout-members");
   const roomStatus = document.querySelector("#breakout-room-status");
@@ -28,6 +28,10 @@
   const mainConnectButton = document.querySelector("#connect-button");
   const mainMicrophoneButton = document.querySelector("#microphone-button");
   const budPanel = document.querySelector("#learner-bud-panel");
+  const publicCaptionList = document.querySelector("#caption-list");
+  const breakoutCaptionList = document.querySelector("#breakout-caption-list");
+  const clearPublicCaptions = document.querySelector("#clear-captions");
+  const clearBreakoutCaptions = document.querySelector("#clear-breakout-captions");
   const query = new URLSearchParams(window.location.search);
   const participantStorageKey = "bud-learner-participant-id";
   const participantId = query.get("participant_id") || window.sessionStorage.getItem(participantStorageKey) ||
@@ -36,6 +40,9 @@
   const displayName = query.get("name") || "Learner";
   let breakoutGroupId = "group-main";
   let breakoutMemberNames = {};
+  let lastCaptionBreakoutGroupId = "group-main";
+  let publicCaptionFeed = null;
+  let breakoutCaptionFeed = null;
   const activationKey = "bud-learner-activated-" + participantId;
   let setupMicReady = false;
   let setupDocsReady = false;
@@ -70,6 +77,7 @@
   if (setupNativeLanguage && mainNativeLanguage) {
     setupNativeLanguage.addEventListener("change", function () {
       mainNativeLanguage.value = setupNativeLanguage.value;
+      replayCaptionFeeds();
     });
     mainNativeLanguage.value = setupNativeLanguage.value;
   }
@@ -138,6 +146,7 @@
   function activateBud() {
     window.sessionStorage.setItem(activationKey, "1");
     updateNavigationLock();
+    ensureWorkshopAudioConnected();
     if (budPanel) budPanel.hidden = false;
     window.learnerBudGreeting = {
       message_id: "learner-bud-greeting",
@@ -176,11 +185,13 @@
       if (roomControls) roomControls.hidden = false;
     }
     if (tab === "workshop") {
+      ensureWorkshopAudioConnected();
       if (promptBand) promptBand.hidden = false;
       workshopSections.forEach(function (section) { section.hidden = false; });
       if (roomFeed) roomFeed.hidden = false;
     }
     if (tab === "breakout" && breakoutView) {
+      ensureWorkshopAudioConnected();
       breakoutView.hidden = false;
       refreshBreakout();
     }
@@ -266,6 +277,10 @@
           return "<li>" + escapeHtml(item.display_name || item.participant_id) + "</li>";
         }).join("");
       }
+      if (breakoutGroupId !== lastCaptionBreakoutGroupId) {
+        lastCaptionBreakoutGroupId = breakoutGroupId;
+        if (breakoutCaptionFeed) breakoutCaptionFeed.replay();
+      }
       renderMessages((state.group_messages || []).filter(function (item) {
         return !item.target_id || item.target_id === breakoutGroupId;
       }));
@@ -306,6 +321,53 @@
       getTargetLanguage: function () { return (document.querySelector("#language-input") || {}).value || "en"; },
       onPosted: refreshBreakout
     });
+  }
+  function roomName() {
+    return query.get("room") || (document.querySelector("#room-input") || {}).value || "BUD-101";
+  }
+
+  function learnerLanguage() {
+    return (document.querySelector("#native-language-input") || {}).value || "en";
+  }
+
+  function ensureWorkshopAudioConnected() {
+    const connected = setupConnectionStatus && setupConnectionStatus.textContent === "Connected";
+    if (!mainConnectButton || connected || mainConnectButton.disabled) return;
+    mainConnectButton.click();
+  }
+
+  function replayCaptionFeeds() {
+    if (publicCaptionFeed) publicCaptionFeed.replay();
+    if (breakoutCaptionFeed) breakoutCaptionFeed.replay();
+  }
+
+  if (mainNativeLanguage) mainNativeLanguage.addEventListener("change", replayCaptionFeeds);
+
+  if (window.BudCaptionFeed) {
+    if (publicCaptionList) {
+      publicCaptionFeed = window.BudCaptionFeed({
+        list: publicCaptionList,
+        clearButton: clearPublicCaptions,
+        participantId: participantId,
+        getRoomName: roomName,
+        getGroupId: function () { return "group-main"; },
+        getTargetLanguage: learnerLanguage,
+        emptyText: "Captions will appear when someone speaks in the workshop."
+      });
+      publicCaptionFeed.start();
+    }
+    if (breakoutCaptionList) {
+      breakoutCaptionFeed = window.BudCaptionFeed({
+        list: breakoutCaptionList,
+        clearButton: clearBreakoutCaptions,
+        participantId: participantId,
+        getRoomName: roomName,
+        getGroupId: function () { return breakoutGroupId; },
+        getTargetLanguage: learnerLanguage,
+        emptyText: "Captions will appear when your breakout speaks."
+      });
+      breakoutCaptionFeed.start();
+    }
   }
   if (activateButton) activateButton.addEventListener("click", activateBud);
   const activated = window.sessionStorage.getItem(activationKey) === "1";
