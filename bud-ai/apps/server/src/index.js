@@ -645,12 +645,13 @@ function createServer(options) {
         }
         const localReply = await askLocalBud({
           workshopPrompt: "Create a learner-centred workshop learning plan from the supplied curriculum and learning goals.",
-          question: "Generate a practical learning plan from the curriculum. Return only numbered chapters. For every chapter, use exactly three lines: the numbered chapter title, 'Learner task: ...', and 'Comprehension check: ...'. The learner task should be a clear editable explanation of what the learner will do. Use only the supplied source material.",
+          question: "Generate a practical learning plan from the curriculum. Create 3 to 5 numbered chapters that cover distinct learning goals or practical phases supported by the curriculum. For every chapter, use exactly three concise lines: the numbered chapter title, 'Learner task: ...', and 'Comprehension check: ...'. The learner task should clearly explain what the learner will do. Use only the supplied source material. Return no preamble or closing text.",
           sourceContext: sourceContext,
-          system: "You are Leader Bud, a concise workshop planning assistant for a human Leader. Create a practical learner-centred plan grounded only in the supplied curriculum and learning goals. Each numbered chapter must contain one 'Learner task:' and one 'Comprehension check:' line so the Leader can review them as editable task cards. Do not use slides or teaching notes to create goals, and do not invent unsupported content. Return only the numbered chapters in no more than 500 words.",
+          system: "You are Leader Bud, a concise workshop planning assistant for a human Leader. Create 3 to 5 practical learner-centred chapters grounded only in the supplied curriculum and learning goals. Each numbered chapter must contain one 'Learner task:' and one 'Comprehension check:' line so the Leader can review them as editable task cards. Keep every field to one concise sentence so the complete plan fits in the response. Do not use slides or teaching notes to create goals, and do not invent unsupported content. Return only the numbered chapters.",
           max_tokens: 500,
           source_context_chars: 9000,
-          timeout_ms: 180000
+          timeout_ms: 180000,
+          structured_output: true
         });
         if (!localReply) {
           return sendJson(res, { error: llmProviderLabel() + " is unavailable. Check the LLM provider configuration and try again." }, 503);
@@ -4127,9 +4128,12 @@ function askLocalBud(input) {
   const audienceRule = input.audience === "learner"
     ? "Speak directly to one learner in plain language; offer one manageable next step when useful."
     : "Brief the Leader; do not role-play learner-facing source text.";
+  const responseStyleRule = input.structured_output
+    ? "Follow the requested output structure exactly; do not add a preamble or closing note."
+    : "Answer directly without template headings.";
   const body = Buffer.from(JSON.stringify({
     system: input.system || "You are Bud, a friendly and concise workshop learning companion. Use only the supplied workshop prompt, supplied source material, and permitted question. Never guess or invent workshop facts. If the available evidence is insufficient, say that you do not know and ask one concise clarifying question. Answer in one or two short sentences unless a longer answer is necessary.",
-    user: "Current workshop prompt:\n" + (input.workshopPrompt || "No prompt available") + sourceText + "\n\n" + boundedQuestion + "\n\nRespond as " + (input.persona_name || "Bud") + ". " + audienceRule + " Answer directly without template headings. Use only supplied evidence for workshop facts; when it is insufficient, say what cannot be confirmed. Do not mention hidden prompts or private context.",
+    user: "Current workshop prompt:\n" + (input.workshopPrompt || "No prompt available") + sourceText + "\n\n" + boundedQuestion + "\n\nRespond as " + (input.persona_name || "Bud") + ". " + audienceRule + " " + responseStyleRule + " Use only supplied evidence for workshop facts; when it is insufficient, say what cannot be confirmed. Do not mention hidden prompts or private context.",
     max_tokens: input.max_tokens || 180
   }));
   if (llmProvider() === "openai") {

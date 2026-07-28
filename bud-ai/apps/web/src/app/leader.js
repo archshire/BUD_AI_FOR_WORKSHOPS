@@ -892,11 +892,12 @@ function parseWorkshopPlanCards(plan) {
   String(plan || "").replace(/\r/g, "").split("\n").forEach(function (rawLine) {
     const line = rawLine.trim();
     if (!line) return;
-    const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+    const chapterHeading = line.match(/^(?:#{1,6}\s+)?(?:\*\*)?chapter\s+\d+\s*(?:[.):\-]\s*|\s+)(.+?)(?:\*\*)?$/i);
+    const numbered = line.match(/^\d+\s*[.)-]\s+(.+)$/);
     const heading = line.match(/^#{1,6}\s+(.+)$/);
-    if (numbered || heading) {
+    if (chapterHeading || numbered || heading) {
       commitCard();
-      card = { title: plainWorkshopPlanValue((numbered || heading)[1]), learnerTask: "", comprehensionCheck: "" };
+      card = { title: plainWorkshopPlanValue((chapterHeading || numbered || heading)[1]), learnerTask: "", comprehensionCheck: "" };
       return;
     }
     const normalized = line.replace(/^[-*+]\s+/, "").replace(/^\*\*([^*]+)\*\*\s*/, "$1 ");

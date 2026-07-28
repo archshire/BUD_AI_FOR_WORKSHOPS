@@ -122,6 +122,7 @@ function testWorkshopAudioAndCaptionWiring() {
   const fs = require("fs");
   const path = require("path");
   const appRoot = path.resolve(__dirname, "../apps/web/src/app");
+  const serverSource = fs.readFileSync(path.resolve(__dirname, "../apps/server/src/index.js"), "utf8");
   const leader = fs.readFileSync(path.join(appRoot, "leader.js"), "utf8");
   const leaderHtml = fs.readFileSync(path.join(appRoot, "leader.html"), "utf8");
   const leaderCss = fs.readFileSync(path.join(appRoot, "leader.css"), "utf8");
@@ -204,6 +205,29 @@ function testWorkshopAudioAndCaptionWiring() {
   assert.equal(generationHandler.indexOf("planTab.click()") === -1, true);
   assert.equal(leader.indexOf('let pendingField = ""') !== -1, true);
   assert.equal(leader.indexOf('target[pendingField] += (target[pendingField] ? "\\n" : "") + value') !== -1, true);
+  assert.equal(serverSource.indexOf("Create 3 to 5 numbered chapters") !== -1, true);
+  assert.equal(serverSource.indexOf("structured_output: true") !== -1, true);
+  assert.equal(serverSource.indexOf("Follow the requested output structure exactly") !== -1, true);
+  const parserSource = leader.slice(
+    leader.indexOf("function plainWorkshopPlanValue"),
+    leader.indexOf("function serializeWorkshopPlanCards")
+  );
+  const parseWorkshopPlan = new Function("plan", parserSource + "\nreturn parseWorkshopPlanCards(plan);");
+  const chapterCards = parseWorkshopPlan([
+    "Chapter 1: Define the problem",
+    "Learner task: Identify the underlying need.",
+    "Comprehension check: What need does the prototype address?",
+    "## Chapter 2 - Test the prototype",
+    "Learner task: Evaluate speed and accessibility.",
+    "Comprehension check: Which usability factor matters most?",
+    "3) Improve the design",
+    "Learner task: Apply the strongest test insight.",
+    "Comprehension check: What evidence supports the change?"
+  ].join("\n"));
+  assert.equal(chapterCards.length, 3);
+  assert.equal(chapterCards[0].title, "Define the problem");
+  assert.equal(chapterCards[1].title, "Test the prototype");
+  assert.equal(chapterCards[2].title, "Improve the design");
 }
 
 function testBudMemorySupportSignals() {
