@@ -67,8 +67,9 @@ services:
       LLM_HOST: qwen
       LLM_PORT: 8790
       SOURCE_PACK_ROOT: /app/data/source-packs
-      BUD_STATE_FILE: /app/data/workshop-state.json
-      BUD_MEMORY_ROOT: /app/data/bud-memory
+      BUD_STATE_FILE: /app/data/source-packs/workshop-state.json
+      BUD_MEMORY_ROOT: /app/data/source-packs/bud-memory
+      BUD_LEDGER_ROOT: /app/data/source-packs/contextual-memory
     ports:
       - "${BUD_PORT:-3002}:3002"
     volumes:

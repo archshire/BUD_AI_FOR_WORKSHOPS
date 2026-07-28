@@ -2275,6 +2275,61 @@ The design authority is
 is `docs/03_CONTRACTS/NORMALIZED_EVENT_CONTRACT.md`, and the product requirement
 is PRD `FR-LANG-006`.
 
+### Session CJ-070
+
+```yaml
+session_id: CJ-070
+date: 2026-07-28
+trigger: Human clarified that Bud needs persistent contextual awareness rather than constantly rebuilding context from route-specific runtime fragments.
+scope: Structured Markdown memory ledger, identity cross-reference, Qwen-assisted compaction, category creation, and privacy-scoped retrieval.
+authority: human clarification
+```
+
+#### Locked Outcome
+
+Bud initializes a room-scoped contextual memory ledger from the first
+interaction. The ledger starts with generic categories: Ground Context, People
+Index, Shared Workshop Chat, Breakout Context, Leader Bud Memory, Learner Bud
+Memory, Open Questions / Unknowns, and Exclusions / Privacy Boundaries.
+
+Ground Context is filled early with uploaded/begin-state information: room
+identity, active or draft Source Pack, generated and locked learning plan,
+attendance roster, active participants, workshop stage, and source versions.
+Each user and each Bud has an identifiable scoped memory area so live chat,
+breakout chat, attendance, task responses, and Bud-private interactions can be
+cross-referenced by participant ID and display name without collapsing privacy
+boundaries.
+
+Qwen may compact new interactions/events, assign them to an existing bucket, or
+suggest a new category when current categories do not fit. Application code owns
+the write: it validates source event references, identity, room/group keys,
+privacy scope, staleness/version markers, category allowlists, and `usable_by`
+retrieval scope before updating the ledger.
+
+The locked cognition loop is retrieve -> reason -> answer -> compact/log. Bud
+loads or initializes the room ledger, retrieves only the smallest relevant
+permitted memory slice for the current Bud/person/room/group/question, answers
+from current runtime state and authoritative source/plan data before memory,
+uses grounded fallback prompts when evidence is missing, and then records a
+compacted interaction or open unknown in the correct scoped ledger bucket.
+
+#### Rationale
+
+This gives Bud persistent contextual awareness without requiring a thousand
+one-off context-building rules. The ledger is structured information for
+scoped retrieval, not full-chat replay, an undifferentiated transcript dump, or
+a second source of truth. Runtime state, active Source Packs, locked learning
+plans, and current attendance remain higher authority when memory conflicts or
+becomes stale.
+
+#### Implementation Trace
+
+The architecture authority is
+`docs/04_IMPLEMENTATION/ARCHITECTURE.md`. State shape and update rules are
+recorded in `docs/03_CONTRACTS/STATE_MODEL_CONTRACT.md`; model decision and
+compaction constraints are recorded in
+`docs/03_CONTRACTS/AI_DECISION_CONTRACT.md`.
+
 ## Clarification Rationale Tracking
 
 Use this section to preserve cognitive traversal lineage.
@@ -2298,6 +2353,7 @@ Use this section to preserve cognitive traversal lineage.
 | CRT-014 | CJ-014 | Full-doc review -> missing gate discovery -> 24-item dependency order | Tier 2 | The human requested a fresh review to ensure no clarification area was overlooked and to rank the order before proceeding. | WorkshopModel, lifecycle, identity, privacy, evidence, state, platform, provider, cloud, and acceptance decisions. | Additional gates were found in source specs/contracts and formally added to the frontier. |
 | CRT-015 | CJ-015 | PRD baseline -> clarification rationale -> stabilized target structure | Tier 2 | The human requested visible separation so team members and judges can understand why the original PRD, KRYSTALIZE, and final approved PRD are distinct stages. | PRD authority, clarification register, implementation readiness, and human approval. | Append-only PRD evolution record added without rewriting the original baseline. |
 | CRT-016 | CJ-063 | Optional live video and screen-sharing -> single main media space -> permission and privacy boundary | Tier 2 | Media permissions and AI/media separation affect room authority, UI layout, privacy, and latency claims. | LiveKit media controls, facilitator authority, retention, and demo acceptance. | Any request to process video, record media, allow multiple shares, or make participant cameras mandatory. |
+| CRT-018 | CJ-070 | Runtime fragments -> structured contextual memory ledger -> scoped retrieval loop | Tier 2 | Bud's partner-like continuity depends on remembering people, ground context, and shared interactions without adding endless one-off route rules. | State model, architecture, AI decision validation, privacy, identity, retrieval, fallback behavior, and memory writes. | Human identified that Bud needs a persistent brain-like contextual layer rather than repeated context rebuilding. |
 
 ## Warning Events
 
@@ -2393,6 +2449,7 @@ Governance notes record authority-relevant context without creating new authorit
 | GN-006 | The PRD must show its evolution from AREN baseline through KRYSTALIZE to human-approved stabilization. | PRD Evolution Record | The human project owner controls final PRD approval; historical baseline and unresolved meaning must remain traceable. | Do not replace the original baseline or label Part 3 final before the relevant gates are settled. |
 | GN-007 | Bud's agency is bounded partnership, not autonomous authority. | LT-052 | Bud may proactively support a shared workshop goal, but privacy, evidence, participant agency, and facilitator authority remain controlling boundaries. | Preserve the distinction in product messaging, UI behavior, and demo claims. |
 | GN-008 | Qwen is not a persona or authority layer. | LT-074 | The application owns context selection, privacy, grounding, and allowed actions; persona contracts shape provider responses. | Keep Learner Bud and Leader Bud contracts separate and traceable. |
+| GN-009 | Qwen may compact contextual memory, but the application owns memory writes and retrieval permissions. | LT-076 | Model-generated summaries are useful continuity aids, not authoritative state. | Validate category, identity, source references, privacy scope, staleness, and `usable_by` before ledger use. |
 
 ## Major Constitutional Shifts
 
@@ -2408,6 +2465,7 @@ Use for significant changes in project intent, philosophy, jurisdiction, accepte
 | MCS-006 | 2026-07-26 | Current multilingual speech/translation configuration expanded. | The prototype used Whisper `base` and documented five language options. | The prototype uses multilingual faster-whisper `small`, supports Thai through the NLLB translation path, and retains a configurable low-latency comparison setting. | This raises likely recognition quality and expands the multilingual demo while preserving separate STT/translation responsibilities. | CJ-066, CJ-067, LT-043, LT-071 |
 | MCS-007 | 2026-07-27 | Bud persona/provider boundary clarified. | Qwen behavior and Bud identity were described together in provider prompts, leaving role separation implicit. | Qwen is the reasoning provider; Learner Bud and Leader Bud are explicit, separate behavior contracts. The application supplies permitted context and validates outputs before display/action. | This prevents generic model completions from becoming workshop truth and makes role-specific behavior, privacy, and uncertainty auditable. | CJ-068, LT-074 |
 | MCS-008 | 2026-07-27 | Multilingual common-chat context clarified. | Chat translation and Bud awareness were described as separate capabilities without a single recipient and privacy contract. | Common-room/group messages preserve the original and recipient-specific translations, and permitted Buds receive the normalized shared event while private Bud conversations remain private. | This lets participants collaborate across languages while giving Buds the shared context needed for useful support without collapsing public and private conversation. | CJ-069, LT-075 |
+| MCS-009 | 2026-07-28 | Persistent contextual memory ledger clarified. | Bud context was assembled from runtime state, source packs, chat, and ad hoc prompt/routing logic with only prototype-grade Markdown memory. | Each room initializes a structured, privacy-scoped contextual memory ledger with Ground Context, People Index, shared chat, breakout context, Bud-private scopes, open questions, and exclusions. Bud interactions follow retrieve -> reason -> answer -> compact/log. Qwen may compact/classify; application code validates and writes. | This gives Bud persistent partner-like contextual awareness while preserving application-owned authority, privacy boundaries, fallback behavior when evidence is missing, and active source/plan precedence. | CJ-070, LT-076 |
 
 ## Traceability Index
 
@@ -2462,3 +2520,4 @@ Use this section to preserve machine/human-readable traceability.
 | TR-051 | CJ-064 | LT-065 through LT-070 | `docs/01_PRODUCT/PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS.md`, `docs/03_CONTRACTS/STATE_MODEL_CONTRACT.md`, `docs/04_IMPLEMENTATION/ARCHITECTURE.md` | Workshop Source Pack is the shared facilitator-approved grounding boundary for Bud. |
 | TR-052 | CJ-068 | LT-074 | `docs/01_PRODUCT/PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS.md`, `docs/01_PRODUCT/05_SYSTEM_BEHAVIOR_SPEC_v1.0_CANDIDATE.md`, `docs/04_IMPLEMENTATION/ARCHITECTURE.md`, `bud-ai/apps/server/src/config/learner-bud-config.js`, `bud-ai/apps/server/src/config/leader-bud-config.js` | Qwen reasoning is separated from role-specific Bud behavior, authority, grounding, and privacy enforcement. |
 | TR-053 | CJ-069 | LT-075 | `docs/01_PRODUCT/UI_UX_WORKSHOP_FLOW_AND_CHAT_CONTRACT.md`, `docs/03_CONTRACTS/NORMALIZED_EVENT_CONTRACT.md`, `docs/01_PRODUCT/PRD_BUD_AI_DYNAMIC_MULTILINGUAL_WORKSHOPS.md` | Common multilingual chat preserves original meaning, recipient translations, Bud context visibility, and private-chat boundaries. |
+| TR-055 | CJ-070 | LT-076 | `docs/04_IMPLEMENTATION/ARCHITECTURE.md`, `docs/03_CONTRACTS/STATE_MODEL_CONTRACT.md`, `docs/03_CONTRACTS/AI_DECISION_CONTRACT.md`, `docs/04_IMPLEMENTATION/IMPLEMENTATION_PLAN.md` | Structured contextual memory ledger locked as Bud's persistent, privacy-scoped retrieve -> reason -> answer -> compact/log layer. |

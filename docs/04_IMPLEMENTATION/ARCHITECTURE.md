@@ -101,6 +101,41 @@ Qwen completion is not accepted as workshop truth. If Qwen cannot complete a
 bounded request, the user receives a visible grounding fallback rather than an
 empty chat response.
 
+### Current response-routing flow
+
+The current server uses a source-first flow, rather than treating Qwen as an
+unrestricted chatbot:
+
+```text
+user message
+    ↓
+intent and scope classification in application code
+    ├── direct source route: identity, attendance, lesson, task insight,
+    │   breakout membership, room status, or permitted shared-chat summary
+    └── constrained reasoning route
+           ↓
+       selected Bud persona + scoped ledger retrieval + authoritative source
+           ↓
+       local Qwen rendering/reasoning
+           ↓
+       output guard: evidence boundary, privacy boundary, no prompt-label leak
+```
+
+Leader Bud's room-status route is deliberately deterministic. It reads the
+same task-response records that drive Room Insights, current public support
+signals, and permitted Live/Breakout chat. It reports named support only where
+a learner explicitly marked a task yellow or red; it does not infer a need from
+silence or expose a learner's private Bud content. A follow-up such as “how are
+they doing?” inherits the preceding room-status subject rather than falling
+back to a generic model explanation.
+
+Learner Bud's identity, assigned-group, lesson, self-check-in, and evidence
+questions are also direct source routes. For personal questions that lack a
+fact in that Bud's own private Markdown memory, the application requires an
+unknown-without-guessing response. This keeps the model useful for natural
+language while preserving the application as the authority for facts and
+scope.
+
 ## Runtime Components
 
 ### Browser clients
@@ -169,13 +204,15 @@ replace Bud Core's decision logic or the application's authority checks.
 Whisper and NLLB remain separate from Qwen because speech recognition,
 translation, and reasoning have different performance and replacement needs.
 
-Bud uses the local reasoning path for two bounded proactive behaviors. A
-learner may receive a short private progress summary after joining and at most
-once per 90-second cooldown. When the facilitator view loads, the application
-projects the latest aggregate comprehension report immediately; this report is
-derived from participant-reported signals and does not expose private Bud
-messages. Both behaviors remain subject to the same privacy and uncertainty
-rules as manually requested support.
+Bud uses signal-driven rather than periodic learner intervention in the current
+prototype. A yellow or red task self-report records an open private support
+signal and may trigger one bounded private offer of clarification; a later
+green response records that support as resolved. Quietness alone does not
+trigger a learner-Bud check-in. When the facilitator view loads, the
+application projects the latest aggregate comprehension report immediately;
+this report is derived from participant-reported signals and does not expose
+private Bud messages. Both behaviors remain subject to the same privacy and
+uncertainty rules as manually requested support.
 
 ## Workshop Source Pack Architecture
 
@@ -193,7 +230,9 @@ The application owns Source Pack lifecycle:
 2. The application validates the file type, associates it with the workshop,
    and extracts/indexes permitted text.
 3. The facilitator activates one version before or during the workshop.
-4. Bud retrieves only from the active version for shared grounding.
+4. Bud retrieves from the active version for shared grounding. During
+   leader-private setup, Leader Bud may use draft uploaded material when no
+   active version exists, but it must label the material as draft/not locked.
 5. A replacement creates a new version; historical evidence keeps the prior
    version reference.
 
@@ -242,6 +281,75 @@ Model data is kept outside the application image:
 background; `make logs`, `make ps`, `make down`, and `make clean` manage the
 stack.
 
+## Persistent Contextual Memory Ledger
+
+Bud maintains contextual awareness through a structured, room-scoped Markdown
+memory ledger from the first workshop interaction. The ledger is not a raw chat
+dump and not a replacement for authoritative runtime state. It is an auditable,
+privacy-scoped retrieval layer that helps each Bud carry continuity without
+rebuilding every answer from scattered runtime fragments.
+
+The top-level ledger categories are created when the room is created:
+
+- Ground Context: room identity, active/draft Source Pack, generated and locked
+  learning plan, attendance roster, active participants, workshop stage, and
+  current source versions.
+- People Index: stable participant IDs, display names, role, guest/registered
+  status, attendance state, public/group references, and private-scope pointers.
+- Shared Workshop Chat: main-room messages and public/group summaries.
+- Breakout Context: one section per `breakout-room-N`, including members,
+  group-labelled messages, and unresolved group questions.
+- Leader Bud Memory: facilitator-private exchanges, leader preferences, open
+  operational follow-ups, and room-management notes.
+- Learner Bud Memory: one privacy-isolated section per learner Bud. Raw learner
+  private content remains retrievable only by that learner's Bud unless explicit
+  permission creates a minimum-necessary projection.
+- Open Questions / Unknowns: known missing evidence, unresolved references, and
+  uncertainty that must not be converted into fact.
+- Exclusions / Privacy Boundaries: content types that must not be logged,
+  retrieved, or projected across scopes.
+
+Every ledger entry must carry at least: timestamp, room ID, actor ID, display
+name when known, source event ID, privacy scope, usable-by scope, category, and
+staleness/version markers where relevant. Uploaded materials, learning plans,
+attendance, chat, and Bud conversations are cross-referenced by identity rather
+than merged into one undifferentiated context.
+
+Qwen may assist with compacting and classifying new events into ledger buckets,
+and may suggest a new category when an event does not fit existing buckets. The
+application owns validation and writes: it checks privacy scope, category
+allowlist, source references, and staleness before appending or updating the
+ledger. Qwen-generated compactions are never authoritative facts by themselves.
+
+Retrieval is category- and scope-based. For example, a lesson question retrieves
+Ground Context; a question about Aisha retrieves the People Index plus public or
+permitted Aisha-related evidence; a breakout question retrieves the matching
+Breakout Context. The application should prefer active Source Pack and locked
+learning-plan state over ledger memory when they conflict.
+
+Bud's cognition loop is:
+
+1. Initialize or load the room ledger from the template.
+2. Retrieve only the permitted, relevant memory slice for the requesting Bud,
+   person, room, group, and question.
+3. Build the answer from the authority order: current runtime state; active
+   Source Pack and locked learning plan; permitted ledger entries; then model
+   reasoning bounded by uncertainty rules.
+4. If the retrieved context does not contain the information, answer with a
+   grounded fallback such as unknown, clarification, or a next-check suggestion
+   instead of inventing workshop facts.
+5. Compact the new interaction/event and append or update it under the correct
+   scoped ledger section, including Open Questions / Unknowns when evidence was
+   missing.
+
+This is a retrieve -> reason -> answer -> compact/log loop. Bud must not replay
+or inspect an entire raw chat transcript as its default memory strategy.
+
+In the current prototype, application events create and retrieve the ledger
+entries; Qwen consumes the permitted retrieval as context. Model-assisted
+compaction/category suggestions remain a future enhancement and are not
+treated as an authoritative write path.
+
 ## Technology Choices And Rationale
 
 | Choice | Role | Rationale |
@@ -253,7 +361,7 @@ stack.
 | NLLB + CTranslate2 | Translation | Provides a dedicated multilingual translation path with model data under local control. |
 | Qwen3 local GGUF | Learner Bud and Leader Bud text replies | Avoids closed API latency, cost, and external data transfer in the demo. |
 | Docker Compose | Deployment | Gives teammates one repeatable command and isolates the five runtime responsibilities. |
-| Local persisted state | Prototype Bud memory | Keeps the demo simple while preserving permitted session context across container restarts; production should use a session-scoped durable store and retrieval layer. |
+| Structured Markdown memory ledger | Prototype contextual memory | Keeps the demo inspectable while preserving permitted session context across turns; production should replace the file-backed ledger with a durable scoped memory service using the same categories, privacy keys, and retrieval rules. |
 
 ## Privacy And Authority Boundaries
 
@@ -286,19 +394,14 @@ stack.
 
 ### Efficient Bud memory
 
-For the prototype, each Bud's growing context is supported by a dedicated,
-room-scoped Markdown memory file containing a boundary header and recent
-meaningful exchanges. Structured state remains authoritative; the Markdown
-file is a fast, readable retrieval index. Source-pack material, learning
-plans, shared room messages, and normalized events remain separate
-authoritative context sources. Only bounded slices are sent to Qwen.
-
-Future builds should replace raw transcript replay with a session-scoped
-memory service: retain an append-only event log, maintain a rolling structured
-summary for each Bud, retrieve only relevant source/chat evidence, and enforce
-room, participant, group, and privacy keys at the storage layer. This will keep
-context useful over long workshops while reducing token use and preventing
-memory from crossing workshop sessions.
+Future builds should replace the prototype Markdown ledger with a session-
+scoped memory service: retain an append-only event log, maintain rolling
+structured summaries for the Ground Context, People Index, shared chat,
+breakout context, and each Bud-private scope, retrieve only relevant
+source/chat/person evidence, and enforce room, participant, group, version, and
+privacy keys at the storage layer. This will keep context useful over long
+workshops while reducing token use and preventing memory from crossing
+workshop sessions.
 
 The architecture leaves room for a cloud-hosted Bud server, a durable state
 store, stronger authentication, larger benchmarked local models, and an

@@ -21,6 +21,8 @@ logs/
 runtime-data/
 session-data/
 data/source-packs/
+bud-ai/data/contextual-memory/
+bud-ai/data/bud-memory/
 
 # Downloaded model weights and local caches
 models/

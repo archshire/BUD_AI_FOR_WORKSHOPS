@@ -10,9 +10,7 @@ function createBudMemoryStore(rootDirectory) {
     return path.join(root, room, bud + ".md");
   }
 
-  function append(roomName, budId, speaker, text) {
-    const cleanText = String(text || "").replace(/\s+/g, " ").trim();
-    if (!cleanText) return;
+  function ensureMemoryFile(roomName, budId) {
     const filePath = memoryPath(roomName, budId);
     fs.mkdirSync(path.dirname(filePath), { recursive: true });
     if (!fs.existsSync(filePath)) {
@@ -21,8 +19,16 @@ function createBudMemoryStore(rootDirectory) {
         "- Room: " + String(roomName || "BUD-101") + "\n" +
         "- Bud: " + String(budId || "bud") + "\n" +
         "- Boundary: private partner memory plus permitted shared workshop context\n\n" +
-        "## Recent meaningful exchanges\n");
+        "## Recent meaningful exchanges\n\n" +
+        "## Support signals\n");
     }
+    return filePath;
+  }
+
+  function append(roomName, budId, speaker, text) {
+    const cleanText = String(text || "").replace(/\s+/g, " ").trim();
+    if (!cleanText) return;
+    const filePath = ensureMemoryFile(roomName, budId);
     fs.appendFileSync(filePath, "\n- " + new Date().toISOString() + " | " + String(speaker || "partner") + ": " + cleanText);
   }
 
@@ -38,7 +44,19 @@ function createBudMemoryStore(rootDirectory) {
     }
   }
 
-  return { append, context, memoryPath };
+  function recordSupport(roomName, budId, input) {
+    const filePath = ensureMemoryFile(roomName, budId);
+    const status = input && input.status === "resolved" ? "resolved" : "open";
+    const task = String(input && input.task || "Current task").replace(/\s+/g, " ").trim();
+    const signal = String(input && input.signal || "support requested").replace(/\s+/g, " ").trim();
+    fs.appendFileSync(filePath, "\n- " + new Date().toISOString() + " | status: " + status + " | task: " + task + " | signal: " + signal);
+  }
+
+  function clearRoom(roomName) {
+    fs.rmSync(path.join(root, safeName(roomName || "BUD-101")), { recursive: true, force: true });
+  }
+
+  return { append, context, memoryPath, recordSupport, clearRoom };
 }
 
 function safeName(value) {

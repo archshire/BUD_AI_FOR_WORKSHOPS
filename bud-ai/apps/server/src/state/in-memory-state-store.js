@@ -5,13 +5,13 @@ function createInMemoryStateStore(initialState, options) {
   const persistencePath = (options && options.persistencePath) || process.env.BUD_STATE_FILE || "";
   let state = initialState || {
     workshop: {
-      workshop_id: "workshop-demo",
-      title: "Bud AI Demo Workshop",
+      workshop_id: "workshop",
+      title: "Bud AI Workshop",
       phase: "active",
       supported_languages: ["en", "es", "zh", "my", "fr", "th"],
       default_language: "en",
       facilitator_ids: ["facilitator-1"],
-      participant_ids: ["learner-1", "learner-2"],
+      participant_ids: [],
       group_ids: ["group-main"],
       room_patterns: [],
       facilitator_signals: [],
@@ -23,7 +23,7 @@ function createInMemoryStateStore(initialState, options) {
     groups: {
       "group-main": {
         group_id: "group-main",
-        participant_ids: ["learner-1", "learner-2"],
+        participant_ids: [],
         shared_meaning: {
           status: "unknown",
           evidence_refs: [],
@@ -77,6 +77,22 @@ function createInMemoryStateStore(initialState, options) {
       created_at: event.occurred_at
     });
     state.workshop.updated_at = new Date().toISOString();
+    persist();
+  }
+
+  function ensureParticipant(participantId) {
+    const id = String(participantId || "").trim();
+    if (!id) return;
+    if (!state.participants[id]) {
+      state.participants[id] = defaultParticipant(id);
+    }
+    if (!state.workshop.participant_ids.includes(id)) {
+      state.workshop.participant_ids.push(id);
+    }
+    const mainGroup = state.groups["group-main"];
+    if (mainGroup && !mainGroup.participant_ids.includes(id)) {
+      mainGroup.participant_ids.push(id);
+    }
     persist();
   }
 
@@ -146,7 +162,9 @@ function createInMemoryStateStore(initialState, options) {
   }
 
   function addSharedMessage(message) {
-    state.messages.push(Object.assign({}, message, { scope: "group_shared" }));
+    // The caller has already selected the permitted shared scope. Do not turn
+    // a workshop-wide message into a breakout message here.
+    state.messages.push(Object.assign({}, message, { scope: message.scope || "group_shared" }));
     persist();
   }
 
@@ -172,6 +190,15 @@ function createInMemoryStateStore(initialState, options) {
       response: response.response,
       updated_at: response.updated_at || new Date().toISOString()
     };
+    persist();
+  }
+
+  function clearRoomConversation(roomName) {
+    const room = String(roomName || "BUD-101");
+    state.messages = state.messages.filter(function (message) {
+      return String(message.room_name || "BUD-101") !== room;
+    });
+    delete state.task_responses[room];
     persist();
   }
 
@@ -202,11 +229,13 @@ function createInMemoryStateStore(initialState, options) {
 
   return {
     recordEvent,
+    ensureParticipant,
     applyParticipantPatch,
     applyGroupPatch,
     addMessage,
     addSharedMessage,
     recordTaskResponse,
+    clearRoomConversation,
     addFacilitatorSignal,
     markEvidenceDisputed,
     recordToolResult,

@@ -382,7 +382,7 @@ function renderRoomChat(messages) {
   roomChatMessages.scrollTop = roomChatMessages.scrollHeight;
 }
 
-function renderTaskInsights(taskInsights) {
+function renderTaskInsights(taskInsights, roomLearnerTotal) {
   taskInsightsList.innerHTML = "";
   if (!taskInsights.length) {
     const empty = document.createElement("p");
@@ -393,7 +393,7 @@ function renderTaskInsights(taskInsights) {
     return;
   }
   const totalDifficulty = taskInsights.reduce(function (sum, task) { return sum + task.difficulty_count; }, 0);
-  roomInsightsSummary.textContent = totalDifficulty + " learner difficulty report" + (totalDifficulty === 1 ? "" : "s") + " across " + taskInsights.length + " task" + (taskInsights.length === 1 ? "" : "s") + ".";
+  roomInsightsSummary.textContent = totalDifficulty + " learner difficulty report" + (totalDifficulty === 1 ? "" : "s") + " across " + taskInsights.length + " task" + (taskInsights.length === 1 ? "" : "s") + ". Each pie shows the response mix for a task.";
   taskInsights.forEach(function (task, index) {
     const card = document.createElement("article");
     card.className = "task-insight-card";
@@ -407,28 +407,79 @@ function renderTaskInsights(taskInsights) {
     const name = document.createElement("h3");
     name.textContent = task.task_text || "Learning plan task";
     title.append(eyebrow, name);
+    const totalLearners = Math.max(Number(roomLearnerTotal) || 0, task.total);
+    const awaiting = Math.max(0, totalLearners - task.total);
     const count = document.createElement("strong");
-    count.textContent = task.difficulty_count + " having difficulty";
+    count.textContent = task.difficulty_count + " need help";
     heading.append(title, count);
-    const bar = document.createElement("div");
-    bar.className = "task-difficulty-bar";
-    const fill = document.createElement("span");
-    fill.style.width = Math.round((task.difficulty_ratio || 0) * 100) + "%";
-    bar.appendChild(fill);
+    const segments = [
+      { key: "green", label: "Got it", count: task.counts.green },
+      { key: "yellow", label: "Somewhat clear", count: task.counts.yellow },
+      { key: "red", label: "Need help", count: task.counts.red },
+      { key: "awaiting", label: "Awaiting", count: awaiting }
+    ];
+    const visual = document.createElement("div");
+    visual.className = "task-insight-visual";
+    const pie = document.createElement("div");
+    pie.className = "task-state-pie";
+    pie.setAttribute("role", "img");
+    pie.setAttribute("aria-label", task.counts.green + " got it, " + task.counts.yellow + " somewhat clear, " + task.counts.red + " need help, " + awaiting + " awaiting response out of " + totalLearners + " learners");
+    pie.style.background = taskStatePieGradient(segments, totalLearners);
+    const pieLabel = document.createElement("span");
+    pieLabel.innerHTML = "<strong>" + task.total + "</strong><small>of " + totalLearners + "</small>";
+    pie.appendChild(pieLabel);
+    const legend = document.createElement("div");
+    legend.className = "task-state-legend";
+    segments.forEach(function (segment) {
+      const item = document.createElement("span");
+      item.className = "is-" + segment.key;
+      item.textContent = segment.label + " " + segment.count;
+      legend.appendChild(item);
+    });
     const meta = document.createElement("p");
     meta.className = "task-insight-meta";
-    meta.textContent = task.counts.green + " got it | " + task.counts.yellow + " somewhat clear | " + task.counts.red + " need help | " + task.total + " responded";
-    card.append(heading, bar, meta);
+    meta.textContent = task.total + " of " + totalLearners + " learners responded";
+    const support = document.createElement("div");
+    support.className = "task-support-names";
+    const redNames = (task.needs_support || []).filter(function (item) { return item.response === "red"; }).map(function (item) { return item.display_name; });
+    const yellowNames = (task.needs_support || []).filter(function (item) { return item.response === "yellow"; }).map(function (item) { return item.display_name; });
+    if (redNames.length) {
+      const line = document.createElement("p");
+      line.className = "is-red";
+      line.textContent = "Needs help: " + redNames.join(", ");
+      support.appendChild(line);
+    }
+    if (yellowNames.length) {
+      const line = document.createElement("p");
+      line.className = "is-yellow";
+      line.textContent = "Needs clarification: " + yellowNames.join(", ");
+      support.appendChild(line);
+    }
+    visual.append(pie, legend);
+    card.append(heading, visual, meta);
+    if (support.childNodes.length) card.appendChild(support);
     taskInsightsList.appendChild(card);
   });
+}
+
+function taskStatePieGradient(segments, total) {
+  if (!total) return "#e9eef0";
+  const colors = { green: "#42a66d", yellow: "#e3ad32", red: "#d85b52", awaiting: "#b8c4ca" };
+  let progress = 0;
+  const stops = segments.filter(function (segment) { return segment.count > 0; }).map(function (segment) {
+    const start = progress / total * 100;
+    progress += segment.count;
+    return colors[segment.key] + " " + start + "% " + (progress / total * 100) + "%";
+  });
+  return "conic-gradient(" + (stops.join(", ") || "#e9eef0 0 100%") + ")";
 }
 
 function refreshLeaderState() {
   fetch("/api/facilitator/state?room=" + encodeURIComponent(roomNameInput.value.trim() || "BUD-101"))
     .then(function (response) { return response.ok ? response.json() : Promise.reject(new Error("State unavailable")); })
     .then(function (state) {
-      renderTaskInsights(state.task_insights || []);
-      renderRoomChat(state.group_messages || []);
+      renderTaskInsights(state.task_insights || [], (state.participants || []).length);
+      renderRoomChat(state.public_messages || []);
     })
     .catch(function () {});
 }
@@ -442,7 +493,7 @@ roomChatForm.addEventListener("submit", function (event) {
     .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
     .then(function (result) {
       if (!result.ok) throw new Error(result.body.error || "Unable to post to the room");
-      renderRoomChat(result.body.state && result.body.state.group_messages || [{ sender_id: "facilitator-1", sender_display_name: leaderName(), text: text }]);
+      renderRoomChat(result.body.state && result.body.state.public_messages || [{ sender_id: "facilitator-1", sender_display_name: leaderName(), text: text }]);
     })
     .catch(function () { renderRoomChat([{ sender_id: "facilitator-1", sender_display_name: leaderName(), text: text }]); });
 });
@@ -464,7 +515,7 @@ if (window.BudTalk && roomTalkButton) {
     getGroupId: function () { return "group-main"; },
     getNativeLanguage: function () { return leaderNativeLanguage.value || "en"; },
     getTargetLanguage: function () { return leaderNativeLanguage.value || "en"; },
-    onPosted: function (body) { renderRoomChat(body.state && body.state.group_messages || []); }
+    onPosted: function (body) { renderRoomChat(body.state && body.state.public_messages || []); }
   });
 }
 
@@ -526,7 +577,10 @@ leaderBudForm.addEventListener("submit", function (event) {
   const registeredPresent = demoRegisteredParticipants.filter(function (participant) { return participant.present; }).length;
   const registeredAbsent = demoRegisteredParticipants.filter(function (participant) { return !participant.present; }).length;
   const guestsPresent = demoGuestParticipants.concat(liveGuestParticipants).filter(function (participant) { return participant.present; }).length;
-  fetch("/api/facilitator-message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ room_name: roomNameInput.value.trim(), text: text, leader_name: leaderName(), native_language: leaderNativeLanguage.value, attendance_context: { registered_present: registeredPresent, registered_absent: registeredAbsent, guests_present: guestsPresent } }) })
+  const registeredPresentNames = demoRegisteredParticipants.filter(function (participant) { return participant.present; }).map(function (participant) { return participant.name; });
+  const registeredAbsentNames = demoRegisteredParticipants.filter(function (participant) { return !participant.present; }).map(function (participant) { return participant.name; });
+  const guestPresentNames = demoGuestParticipants.concat(liveGuestParticipants).filter(function (participant) { return participant.present; }).map(function (participant) { return participant.name; });
+  fetch("/api/facilitator-message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ room_name: roomNameInput.value.trim(), text: text, leader_name: leaderName(), native_language: leaderNativeLanguage.value, attendance_context: { registered_present: registeredPresent, registered_absent: registeredAbsent, guests_present: guestsPresent, registered_present_names: registeredPresentNames, registered_absent_names: registeredAbsentNames, guest_present_names: guestPresentNames } }) })
     .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
     .then(function (result) {
       if (!result.ok) throw new Error(result.body.error || "BUD is unavailable");
@@ -670,7 +724,7 @@ openLeaderRoomButton.addEventListener("click", function () {
   fetch("/api/facilitator/room", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ room_name: roomName })
+    body: JSON.stringify({ room_name: roomName, new_workshop: true })
   })
     .then(function (response) {
       return response.json().then(function (body) { return { ok: response.ok, body: body }; });

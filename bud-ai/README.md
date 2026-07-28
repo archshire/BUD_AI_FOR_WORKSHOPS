@@ -100,10 +100,11 @@ remain scrollable within bounded client panels.
 - Text-first normalized event ingestion.
 - Bud Core decisions for ME, US, THE ROOM, corrections, privacy, and WAIT.
 - Private "Help, I'm Stuck" support request flow.
-- Private periodic learner progress summaries with a bounded 90-second cooldown.
+- Signal-driven private learner support when a learner explicitly marks a task
+  yellow or red; a later green response resolves that support signal.
 - Context retrieval for facilitator instructions and recent permitted workshop evidence.
-- Adaptive private check-in flow for low observable participation.
-- Participation observation generator that can scan recent shared workshop activity and emit low-activity observations for quieter learners.
+- Evidence-based room insights and Leader Bud briefings drawn from explicit task
+  check-ins plus permitted Live/Breakout chat; quiet learners remain unknown.
 - Dependency-free learner web UI with a private Bud panel, "Help, I'm Stuck" action, private message composer, and adaptive scan control.
 - Local HTTP API for learner state, private help requests, private messages, and observation scans.
 - Application-side tool validation.

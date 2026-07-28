@@ -9,6 +9,7 @@ Draft contract for Bud AI MVP implementation.
 - [Authority Rule](#authority-rule)
 - [State Objects](#state-objects)
 - [WorkshopState](#workshopstate)
+- [ContextualMemoryLedger](#contextualmemoryledger)
 - [ParticipantState - ME](#participantstate---me)
 - [GroupState - US](#groupstate---us)
 - [FacilitatorViewState - THE ROOM](#facilitatorviewstate---the-room-projection)
@@ -78,6 +79,61 @@ type WorkshopState = {
   updated_at: ISODateTime;
 };
 ```
+
+### ContextualMemoryLedger
+
+```ts
+type ContextualMemoryLedger = {
+  ledger_id: string;
+  workshop_id: string;
+  room_id: string;
+  schema_version: string;
+  generated_at: ISODateTime;
+  updated_at: ISODateTime;
+  ground_context: GroundContextMemory;
+  people_index: PersonMemoryEntry[];
+  shared_workshop_chat: SharedChatMemory;
+  breakout_contexts: BreakoutMemory[];
+  leader_bud_memory: BudScopedMemory;
+  learner_bud_memories: BudScopedMemory[];
+  open_questions: MemoryEntry[];
+  exclusions: MemoryBoundaryEntry[];
+};
+
+type MemoryEntry = {
+  memory_id: string;
+  category: string;
+  summary: string;
+  source_event_refs: EvidenceRef[];
+  actor_id?: ParticipantId;
+  display_name?: string;
+  privacy_scope: PrivacyScope;
+  usable_by: PrivacyScope[];
+  source_version?: string;
+  status: "current" | "draft" | "superseded" | "stale" | "disputed";
+  created_at: ISODateTime;
+  updated_at: ISODateTime;
+};
+```
+
+The ContextualMemoryLedger is a structured, privacy-scoped retrieval layer. It
+is initialized from the first room interaction with default categories for
+Ground Context, People Index, shared chat, breakout context, Leader Bud memory,
+learner Bud memory, open questions, and exclusions. It must not become an
+undifferentiated transcript dump.
+
+For each Bud interaction, retrieval must be scoped by room, Bud role, actor,
+identity target, group, privacy scope, staleness, and category. The answer path
+uses current runtime state and authoritative source/plan data before ledger
+entries. After the response, the resulting interaction is compacted into a
+proposed MemoryEntry update and written only after validation. Missing evidence
+is logged as Open Questions / Unknowns rather than promoted to fact.
+
+Runtime state and normalized events remain authoritative. Qwen may propose
+compacted summaries, category assignments, or new category names, but the
+application validates privacy scope, source references, category allowlists, and
+staleness before writing to the ledger. A ledger entry is retrievable only by
+Buds whose scope appears in `usable_by`.
 
 ### ParticipantState - ME
 
@@ -199,7 +255,12 @@ type EvidenceRecord = {
   created_at: ISODateTime;
 };
 
-type PrivacyScope = "public_shared" | "group_shared" | "private_participant_ai";
+type PrivacyScope =
+  | "public_shared"
+  | "group_shared"
+  | "private_participant_ai"
+  | "private_facilitator_ai"
+  | "private_dm";
 
 type PrivacyContext = {
   default_scope: PrivacyScope;
@@ -241,6 +302,7 @@ type SupportRequest = {
 - `help_stuck` support requests must be grounded in facilitator lesson transcript, current activity, or permitted shared context.
 - Source Pack retrieval must be scoped to the active workshop version and preserve page, slide, or section references.
 - Evidence generated from source material must retain the active Source Pack version so later replacement does not rewrite historical grounding.
+- Contextual memory retrieval must be category-, identity-, room-, group-, and privacy-scoped. Ledger memory may support continuity, but active Source Pack state, locked learning plans, and current runtime state outrank stale or conflicting memory.
 - `adaptive_checkin` support requests must be grounded in observable participation patterns over a defined time window. Bud may invite the participant to ask a question, request clarification, keep listening, or contribute, but must not infer disengagement, confusion, motivation, or personality from quietness alone.
 - `comprehension.status` is participant-reported calibration evidence. `unknown` is the required default and remains so when no response is received.
 - Facilitator comprehension rollups use aggregate counts and a response denominator. They exclude raw private follow-up content and do not infer why a participant chose yellow or red.

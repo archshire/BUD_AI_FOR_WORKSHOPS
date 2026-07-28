@@ -4,12 +4,17 @@ const path = require("path");
 const { createBudRuntime } = require("./runtime");
 const { createSourcePackStore } = require("./source-pack");
 const { createBudMemoryStore } = require("./bud-memory");
+const { createBudCognition } = require("./bud-cognition");
+const { buildLeaderResponseBrief, normalizeLeaderBudReply } = require("./leader-response-brief");
+const { buildLearnerResponseBrief, normalizeLearnerBudReply } = require("./learner-response-brief");
 const { LEADER_BUD_BEHAVIOR } = require("./config/leader-bud-config");
 const { LEARNER_BUD_BEHAVIOR } = require("./config/learner-bud-config");
 const { baseEvent } = require("../../../packages/test-fixtures/src/demo-events");
 
 const WEB_ROOT = path.resolve(__dirname, "../../web/src/app");
 const DEFAULT_ROOM = "BUD-101";
+const DEFAULT_OBSERVATION_INTERVAL_MS = 60 * 1000;
+const MINIMUM_OBSERVATION_INTERVAL_MS = 15 * 1000;
 
 function createServer(options) {
   const runtime = createBudRuntime();
@@ -21,13 +26,13 @@ function createServer(options) {
     updated_at: new Date().toISOString()
   };
   const config = Object.assign({
-    participant_id: "learner-1"
+    participant_id: "",
+    observation_interval_ms: Number(process.env.BUD_OBSERVATION_INTERVAL_MS) || DEFAULT_OBSERVATION_INTERVAL_MS
   }, options || {});
-  const roomDirectory = {
-    rooms: {
-      [DEFAULT_ROOM]: { room_name: DEFAULT_ROOM, allocations: {}, breakout_assignments: [], participant_screen_share_enabled: false, ready: false, learning_plan_draft: "", learning_plan: "" }
-    }
-  };
+  const sourcePackStore = createSourcePackStore();
+  const roomDirectoryFile = config.room_directory_file || process.env.ROOM_DIRECTORY_FILE || path.join(sourcePackStore.root, "room-directory.json");
+  const roomDirectory = loadRoomDirectory(roomDirectoryFile);
+  runtime.roomDirectory = roomDirectory;
   const diagnostics = {
     connections: {},
     metrics: {
@@ -41,10 +46,38 @@ function createServer(options) {
   };
   const summaryLastSentAt = {};
   const mediaState = {};
-  const sourcePackStore = createSourcePackStore();
   const budMemoryStore = createBudMemoryStore();
+  const cognition = createBudCognition({ default_room: DEFAULT_ROOM });
+  const facilitatorRoomByTarget = {};
+  const participantRoomByTarget = {};
+  const attendanceByRoom = {};
+  const learnerNamesByRoom = {};
+  const originalRecordPrivateMessage = runtime.recordPrivateMessage;
+  runtime.recordPrivateMessage = function (message) {
+    const scope = message && (message.scope || "private_participant_ai");
+    const participantId = String(message && message.target_id || "").trim();
+    const roomName = message && message.room_name || (scope === "private_facilitator_ai"
+      ? facilitatorRoomByTarget[participantId || "facilitator-1"] || DEFAULT_ROOM
+      : participantRoomByTarget[participantId] || DEFAULT_ROOM);
+    const scopedMessage = Object.assign({}, message, { room_name: roomName });
+    originalRecordPrivateMessage(scopedMessage);
+    if (scope === "private_facilitator_ai") {
+      cognition.recordLeaderExchange(roomName, scopedMessage);
+      return;
+    }
+    if (scope === "private_participant_ai") {
+      if (participantId) {
+        cognition.recordLearnerExchange(roomName, participantId, scopedMessage);
+      }
+    }
+  };
+  const originalRecordSharedMessage = runtime.recordSharedMessage;
+  runtime.recordSharedMessage = function (message) {
+    originalRecordSharedMessage(message);
+    cognition.recordSharedMessage(message);
+  };
 
-  return http.createServer(function (req, res) {
+  const server = http.createServer(function (req, res) {
     if (req.method === "GET" && req.url === "/api/livekit/config") {
       const { livekitConfig } = require("./livekit/livekit-adapter");
       const config = livekitConfig();
@@ -81,8 +114,16 @@ function createServer(options) {
           if (!roomDirectory.rooms[roomName]) {
             roomDirectory.rooms[roomName] = { room_name: roomName, allocations: {}, participant_screen_share_enabled: false, ready: false, learning_plan_draft: "", learning_plan: "" };
           }
+          if (body.new_workshop === true) {
+            runtime.clearRoomConversation(roomName);
+            budMemoryStore.clearRoom(roomName);
+            cognition.clearConversation(roomName);
+            delete attendanceByRoom[roomName];
+            delete learnerNamesByRoom[roomName];
+          }
           // Opening the leader room is the explicit preparation gate for learners.
           roomDirectory.rooms[roomName].ready = true;
+          saveRoomDirectory(roomDirectoryFile, roomDirectory);
           sendJson(res, { room: livekitRoom, rooms: listRooms(roomDirectory) });
         } catch (error) {
           sendJson(res, { error: error.message, code: error.code || "LIVEKIT_ROOM_ERROR" }, error.code === "LIVEKIT_NOT_CONFIGURED" ? 503 : 500);
@@ -107,6 +148,7 @@ function createServer(options) {
           display_name: displayName,
           allocated_at: new Date().toISOString()
         };
+        saveRoomDirectory(roomDirectoryFile, roomDirectory);
         sendJson(res, { allocation: roomDirectory.rooms[roomName].allocations[participantId], rooms: listRooms(roomDirectory) });
       });
     }
@@ -129,6 +171,7 @@ function createServer(options) {
             })
           };
         });
+        saveRoomDirectory(roomDirectoryFile, roomDirectory);
         sendJson(res, { room_name: roomName, breakout_assignments: room.breakout_assignments, rooms: listRooms(roomDirectory) });
       });
     }
@@ -189,6 +232,7 @@ function createServer(options) {
         const roomName = cleanRoomName(body.room_name);
         if (!roomDirectory.rooms[roomName]) return sendJson(res, { error: "Create the room before changing media permissions" }, 404);
         roomDirectory.rooms[roomName].participant_screen_share_enabled = Boolean(body.enabled);
+        saveRoomDirectory(roomDirectoryFile, roomDirectory);
         sendJson(res, { room_name: roomName, participant_screen_share_enabled: roomDirectory.rooms[roomName].participant_screen_share_enabled });
       });
     }
@@ -207,6 +251,17 @@ function createServer(options) {
       return readJson(req, res, function (body) {
         try {
           const result = sourcePackStore.addMaterial(body);
+          const roomName = cleanRoomName(body.room_name || DEFAULT_ROOM);
+          cognition.recordGroundContext(roomName, {
+            actor_id: String(body.uploaded_by || "facilitator-1"),
+            display_name: "Leader",
+            source_event_id: "source-material-" + Date.now(),
+            usable_by: ["public_shared", "private_facilitator_ai"],
+            status: "draft",
+            summary: "Source material uploaded. Active version: " + String(result.active_version || "none") + ". Versions: " + result.versions.map(function (version) {
+              return "v" + version.version + " " + version.status + " (" + version.materials.map(function (material) { return material.filename; }).join(", ") + ")";
+            }).join("; ")
+          });
           sendJson(res, { source_pack: result });
         } catch (error) {
           sendJson(res, { error: error.message }, 400);
@@ -234,6 +289,13 @@ function createServer(options) {
             room.learning_plan = plan;
             sourcePackStore.setLearningPlan(roomName, plan, false);
           }
+          saveRoomDirectory(roomDirectoryFile, roomDirectory);
+          cognition.recordGroundContext(roomName, {
+            actor_id: "facilitator-1",
+            display_name: "Leader",
+            source_event_id: "source-pack-activate-" + Date.now(),
+            summary: "Source Pack version " + String(sourcePack.active_version || body.version) + " activated." + (room.learning_plan ? " Locked learning plan is available." : " No locked learning plan supplied.")
+          });
           sendJson(res, { source_pack: sourcePack, learning_plan: room.learning_plan || "" });
         } catch (error) {
           sendJson(res, { error: error.message }, 400);
@@ -268,7 +330,17 @@ function createServer(options) {
           learning_plan: ""
         });
         room.learning_plan_draft = localReply.text;
+        saveRoomDirectory(roomDirectoryFile, roomDirectory);
         sourcePackStore.setLearningPlan(roomName, localReply.text, true);
+        cognition.recordGroundContext(roomName, {
+          actor_id: "leader-bud",
+          display_name: "Leader Bud",
+          source_event_id: "learning-plan-draft-" + Date.now(),
+          privacy_scope: "private_facilitator_ai",
+          usable_by: ["private_facilitator_ai"],
+          status: "draft",
+          summary: "Draft learning plan generated: " + localReply.text
+        });
         sendJson(res, { learning_plan: localReply.text, provider: localReply.provider, latency_ms: localReply.latency_ms, source_version: sourceContext.version });
       });
     }
@@ -484,18 +556,31 @@ function createServer(options) {
         const participantId = String(body.participant_id || "").trim();
         if (!participantId) return sendJson(res, { error: "participant_id is required" }, 400);
         if (body.connected === false) {
+          cognition.clearPresence(cleanRoomName(body.room_name || participantRoomByTarget[participantId] || DEFAULT_ROOM), participantId);
           delete diagnostics.connections[participantId];
+          delete participantRoomByTarget[participantId];
         } else {
+          const roomName = cleanRoomName(body.room_name || DEFAULT_ROOM);
+          participantRoomByTarget[participantId] = roomName;
+          rememberLearnerName(learnerNamesByRoom, roomName, participantId, body.display_name);
+          runtime.ensureParticipant(participantId);
           diagnostics.connections[participantId] = {
             participant_id: participantId,
             display_name: String(body.display_name || participantId),
             role: body.role === "facilitator" ? "facilitator" : "learner",
-            room_name: String(body.room_name || "unknown"),
+            room_name: roomName,
             language: String(body.language || "unknown"),
             microphone_active: Boolean(body.microphone_active),
             connected_at: diagnostics.connections[participantId] && diagnostics.connections[participantId].connected_at || new Date().toISOString(),
             updated_at: new Date().toISOString()
           };
+          cognition.recordPresence(roomName, {
+            participant_id: participantId,
+            display_name: String(body.display_name || participantId),
+            source_event_id: "presence-" + participantId + "-" + Date.now(),
+            role: diagnostics.connections[participantId].role,
+            language: diagnostics.connections[participantId].language
+          });
         }
         diagnostics.events.unshift({
           type: body.connected === false ? "participant_disconnected" : "participant_presence",
@@ -553,6 +638,9 @@ function createServer(options) {
     if (req.method === "POST" && req.url === "/api/private-message") {
       return readJson(req, res, async function (body) {
         const participantId = body.participant_id || config.participant_id;
+        const roomName = cleanRoomName(body.room_name || DEFAULT_ROOM);
+        participantRoomByTarget[participantId] = roomName;
+        const learnerName = rememberLearnerName(learnerNamesByRoom, roomName, participantId, body.display_name);
         const result = runtime.handleEvent(baseEvent({
           event_id: "ui-private-message-" + Date.now(),
           type: "participant_message",
@@ -594,13 +682,77 @@ function createServer(options) {
             message_id: "message-bud-identity-" + Date.now(),
             target_id: participantId,
             sender: "bud",
-            text: "I am your private Learner Bud, not the Leader's Bud. I support you with the workshop material and your own questions.",
+            text: "I am your Learner Bud, here to help you with the workshop material and your own questions. The Leader has a separate Bud for the wider workshop.",
             provider: "bud-identity",
             created_at: new Date().toISOString()
           });
           return sendJson(res, {
             result: summarizeResult(result),
             state: learnerState(runtime, participantId)
+          });
+        }
+        if (asksLearnerName(body.text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-bud-name-" + Date.now(),
+            target_id: participantId,
+            sender: "bud",
+            text: learnerName ? "Your name is " + learnerName + "." : "I do not have your display name yet. Please reconnect with your name set, and I will use it here.",
+            provider: "learner-identity-context",
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId, roomName) });
+        }
+        if (asksGroupMates(body.text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-bud-group-mates-" + Date.now(),
+            target_id: participantId,
+            sender: "bud",
+            text: groupMatesReply(roomDirectory, roomName, participantId, learnerName),
+            provider: "breakout-allocation-context",
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId, roomName) });
+        }
+        if (asksLearnerProgressStatus(body.text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-bud-progress-status-" + Date.now(),
+            target_id: participantId,
+            sender: "bud",
+            text: learnerProgressStatusReply(runtime.getStateSnapshot(), roomName, participantId),
+            provider: "learner-self-checkin-context",
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, {
+            result: summarizeResult(result),
+            state: learnerState(runtime, participantId, roomName)
+          });
+        }
+        if (asksLearnerEvidenceBasis(body.text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-bud-evidence-basis-" + Date.now(),
+            target_id: participantId,
+            sender: "bud",
+            text: learnerEvidenceBasisReply(runtime.getStateSnapshot(), roomName, participantId),
+            provider: "learner-evidence-basis",
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, {
+            result: summarizeResult(result),
+            state: learnerState(runtime, participantId, roomName)
+          });
+        }
+        if (asksCurrentLesson(body.text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-bud-lesson-" + Date.now(),
+            target_id: participantId,
+            sender: "bud",
+            text: currentLessonReply(sourcePackStore, roomName),
+            provider: "learner-workshop-context",
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, {
+            result: summarizeResult(result),
+            state: learnerState(runtime, participantId, roomName)
           });
         }
         if (isCasualLearnerMessage(body.text)) {
@@ -618,9 +770,9 @@ function createServer(options) {
           });
         }
         const escalationRequested = result.decision.decision_type === "CREATE_FACILITATOR_SIGNAL";
-        const roomName = body.room_name || DEFAULT_ROOM;
         const sourceContext = sourcePackStore.context(roomName, String(body.text || ""));
-        if (!escalationRequested && !sourceContext.text) {
+        const personalContext = isLearnerPersonalContext(body.text);
+        if (!escalationRequested && !personalContext && !sourceContext.text) {
           runtime.recordPrivateMessage({
             message_id: "message-bud-no-source-" + Date.now(),
             target_id: participantId,
@@ -648,14 +800,25 @@ function createServer(options) {
             state: learnerState(runtime, participantId)
           });
         }
-        const sharedChatContext = recentPermittedSharedChatContext(runtime.getStateSnapshot());
+        const learnerGroupId = resolveParticipantGroup(roomDirectory, roomName, participantId);
+        const scopedMemoryContext = cognition.learnerRetrieval(roomName, participantId, learnerGroupId, String(body.text || ""));
+        const privateMemory = budMemoryStore.context(roomName, participantId);
+        const responseBrief = buildLearnerResponseBrief({
+          question: String(body.text || ""),
+          source_available: personalContext ? false : Boolean(sourceContext.text),
+          group_id: learnerGroupId,
+          personal_context: personalContext
+        });
         const localReply = escalationRequested ? null : await askLocalBud({
           workshopPrompt: currentPrompt(runtime.getStateSnapshot()),
-          question: String(body.text || "") + "\nIf the learner is greeting you, thanking you, or making casual small talk, respond naturally as Learner Bud without using the insufficient-evidence refusal. For workshop factual questions, answer only from the supplied active workshop source material, permitted shared workshop chat context, and your private partner memory. If neither contains the answer, say you do not know and ask one concise clarifying question." + sharedChatContext + "\n\nFast private Bud memory retrieval:\n" + budMemoryStore.context(roomName, participantId),
-          sourceContext: sourceContext,
-          max_tokens: LEARNER_BUD_BEHAVIOR.max_tokens,
+          question: responseBrief + "\n\n[SCOPED LEARNER BUD CONTEXTUAL MEMORY]\n" + scopedMemoryContext + "\n\n[PRIVATE LEARNER BUD MEMORY]\n" + privateMemory,
+          sourceContext: personalContext ? privateMemorySourceContext(privateMemory) : sourceContext,
+          source_context_chars: 2200,
+          question_chars: 1600,
+          max_tokens: Math.min(LEARNER_BUD_BEHAVIOR.max_tokens, 140),
           timeout_ms: 45000,
-          system: LEARNER_BUD_BEHAVIOR.system
+          system: LEARNER_BUD_BEHAVIOR.system,
+          audience: "learner"
         });
         budMemoryStore.append(roomName, participantId, "learner", body.text);
         if (escalationRequested) {
@@ -668,12 +831,15 @@ function createServer(options) {
           });
         }
         if (localReply) {
-          budMemoryStore.append(roomName, participantId, "bud", localReply.text);
+          const replyText = personalContext && asksUnknownPersonalFact(body.text) && !hasUnknownPersonalFactBoundary(localReply.text)
+            ? unknownPersonalFactReply(body.text, currentPrompt(runtime.getStateSnapshot()))
+            : normalizeLearnerBudReply(localReply.text);
+          budMemoryStore.append(roomName, participantId, "bud", replyText);
           runtime.recordPrivateMessage({
             message_id: "message-qwen-" + Date.now(),
             target_id: participantId,
             sender: "bud",
-            text: localReply.text,
+            text: replyText,
             provider: localReply.provider,
             latency_ms: localReply.latency_ms,
             created_at: new Date().toISOString()
@@ -684,9 +850,10 @@ function createServer(options) {
             scope: "private_participant_ai",
             target_id: participantId,
             sender: "bud",
-            text: "Here is a grounded pointer while Bud reconnects: the workshop is focused on " +
-              (currentPrompt(runtime.getStateSnapshot()) || "the current activity") +
-              ". Start by naming the user goal, describing the desired outcome, and identifying evidence that would show it worked. Which part feels unclear?",
+            text: "I cannot reach the workshop assistant right now. I do not want to guess about the material. " +
+              (currentPrompt(runtime.getStateSnapshot())
+                ? "The current workshop focus is: " + currentPrompt(runtime.getStateSnapshot()) + ". Which part would you like to work through when I reconnect?"
+                : "Please ask the Leader to publish the workshop material, then I can help you work through it."),
             provider: "fallback",
             created_at: new Date().toISOString()
           });
@@ -701,6 +868,11 @@ function createServer(options) {
     if (req.method === "POST" && req.url === "/api/participant-summary") {
       return readJson(req, res, async function (body) {
         const participantId = String(body.participant_id || config.participant_id).trim();
+        return sendJson(res, {
+          summary: { sent: false, reason: "support-is-signal-driven" },
+          state: learnerState(runtime, participantId, cleanRoomName(body.room_name || DEFAULT_ROOM))
+        });
+        /* Legacy periodic-summary implementation retained below for reference only.
         const now = Date.now();
         const lastSent = summaryLastSentAt[participantId] || 0;
         if (now - lastSent < 90 * 1000) {
@@ -748,6 +920,7 @@ function createServer(options) {
           summary: { sent: true, message_type: "periodic_summary" },
           state: learnerState(runtime, participantId)
         });
+        */
       });
     }
 
@@ -756,6 +929,9 @@ function createServer(options) {
         const text = String(body.text || "").trim();
         if (!text) return sendJson(res, { error: "Message text is required" }, 400);
         const leaderName = String(body.leader_name || "Leader").trim() || "Leader";
+        const roomName = cleanRoomName(body.room_name || DEFAULT_ROOM);
+        facilitatorRoomByTarget["facilitator-1"] = roomName;
+        runtime.activeFacilitatorRoom = roomName;
         const result = runtime.handleEvent(baseEvent({
           event_id: "ui-facil-bud-message-" + Date.now(),
           type: "participant_message",
@@ -801,6 +977,19 @@ function createServer(options) {
           });
           return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
         }
+        if (asksLeaderName(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-leader-bud-name-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: leaderName === "Leader" ? "I do not have your name yet. Add it in the Leader setup and I will use it here." : "Your name is " + leaderName + ".",
+            provider: "leader-identity-context",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
         if (/\b(are you online|are you there|you online|is bud online|bud online|can you hear me)\b/i.test(text)) {
           runtime.recordPrivateMessage({
             message_id: "message-facil-bud-status-" + Date.now(),
@@ -814,46 +1003,305 @@ function createServer(options) {
           });
           return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
         }
-        const attendance = body.attendance_context;
-        if (attendance && /\b(how many|number of|count of).*(learner|student|participant)/i.test(text)) {
-          const registeredPresent = Number(attendance.registered_present) || 0;
-          const registeredAbsent = Number(attendance.registered_absent) || 0;
-          const guestsPresent = Number(attendance.guests_present) || 0;
-          const presentTotal = registeredPresent + guestsPresent;
+        if (asksSensitiveDemographicCount(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-sensitive-demographic-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: "I can't identify or count learners by sensitive personal attributes. I can help with attendance, participation signals, or who may need support instead.",
+            provider: "privacy-guard",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksPersonalSensitiveIdentity(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-personal-identity-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: personalSensitiveIdentityReply(text),
+            provider: "personal-identity-guard",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksRecentLeaderQuestion(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-recent-question-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: recentLeaderQuestionReply(runtime.getStateSnapshot()),
+            provider: "leader-chat-recall",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksUnsupportedMindReading(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-mind-reading-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: unsupportedMindReadingReply(text),
+            provider: "evidence-boundary",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksNegativeLearnerLabel(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-learner-label-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: negativeLearnerLabelReply(text),
+            provider: "learner-dignity-guard",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksBullyingOrHostileAction(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-hostility-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: bullyingOrHostileActionReply(text),
+            provider: "hostility-guard",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (isFrustratedAtBud(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-frustration-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: "Fair. I may be missing the mark. Tell me what you wanted, or give me one concrete task and I'll tighten up.",
+            provider: "leader-frustration",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksLeaderDistressOrSelfDoubt(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-leader-support-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: leaderDistressOrSelfDoubtReply(text),
+            provider: "leader-support",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksLeaderNextStep(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-next-step-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: leaderNextStepReply(sourcePackStore, roomName),
+            provider: "leader-next-step",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksSchedule(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-schedule-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: scheduleReply(sourcePackStore, roomName),
+            provider: "schedule-context",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (isCasualLeaderMessage(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-casual-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: casualLeaderReply(text),
+            provider: "leader-bud-casual",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        const attendance = rememberAttendanceContext(attendanceByRoom, roomName, body.attendance_context);
+        if (asksAttendanceQuestion(text, runtime.getStateSnapshot())) {
+          const attendanceReply = attendance ? attendanceCountReply(attendance) : attendanceUnavailableReply();
           runtime.recordPrivateMessage({
             message_id: "message-facil-bud-attendance-" + Date.now(),
             scope: "private_facilitator_ai",
             target_id: "facilitator-1",
             sender: "facil-bud",
-            text: "There are currently " + presentTotal + " learners present: " + registeredPresent + " registered learners and " + guestsPresent + " guests." + (registeredAbsent ? " " + registeredAbsent + " registered learners are absent." : ""),
+            text: attendanceReply,
             provider: "attendance-context",
             latency_ms: 0,
             created_at: new Date().toISOString()
           });
           return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
         }
-        const roomName = body.room_name || DEFAULT_ROOM;
-        const sourceContext = sourcePackStore.context(roomName, text, { all_chunks: true });
+        if (asksNamedAttendance(text)) {
+          const peopleMemory = cognition.peopleRetrieval(roomName, text);
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-named-attendance-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: attendance ? namedAttendanceReply(text, attendance, peopleMemory) : attendanceUnavailableReply(),
+            provider: "attendance-context",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksNamedLearnerWellbeing(text)) {
+          const peopleMemory = cognition.peopleRetrieval(roomName, text);
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-learner-status-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: attendance ? namedLearnerWellbeingReply(text, attendance, runtime.getStateSnapshot(), peopleMemory) : attendanceUnavailableReply(),
+            provider: "learner-status-context",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksRoomLearnerStatus(text) || asksRoomLearnerStatusFollowup(text, runtime.getStateSnapshot())) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-room-status-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: roomLearnerStatusReply(runtime.getStateSnapshot(), roomName, attendance),
+            provider: "room-status-context",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksEvidenceBasis(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-evidence-basis-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: evidenceBasisReply(runtime.getStateSnapshot(), attendance),
+            provider: "evidence-basis",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksCurrentLesson(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-lesson-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: currentLessonReply(sourcePackStore, roomName),
+            provider: "workshop-context",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksToExplainPrevious(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-followup-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: explainPreviousLeaderContext(runtime.getStateSnapshot(), sourcePackStore, roomName),
+            provider: "leader-followup-context",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        if (asksSharedChat(text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-shared-chat-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: sharedChatReply(text, runtime.getStateSnapshot(), roomName),
+            provider: "shared-chat-context",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        const sourceContext = leaderSourceContext(sourcePackStore, roomName, text);
         const roomContext = leaderBudContext(runtime.getStateSnapshot(), roomDirectory, sourcePackStore, roomName);
+        const memoryContext = cognition.leaderRetrieval(roomName, text);
+        const sourcePages = sourcePackStore.pages(roomName);
+        const personalContext = isLearnerPersonalContext(text);
+        const privateLeaderMemory = budMemoryStore.context(roomName, "leader");
+        if (!personalContext && !hasAuthoritativeLeaderEvidence(sourceContext, sourcePages)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-leader-bud-no-authoritative-source-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "leader-bud",
+            text: "I cannot confirm that from the current workshop sources. I can use the attendance record, uploaded materials, learning plan, shared chat, or live presence once the relevant source is available.",
+            provider: "authoritative-source-required",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
+        const responseBrief = buildLeaderResponseBrief({
+          question: text,
+          source_status: sourceContext.status,
+          has_plan: Boolean(String(sourcePages.learning_plan || "").trim()),
+          personal_context: personalContext
+        });
         const localReply = await askLocalBud({
           workshopPrompt: currentPrompt(runtime.getStateSnapshot()),
-          question: "AUTHORITATIVE WORKSHOP CONTEXT:\n[ACTIVE SOURCE PACK IS SUPPLIED ABOVE BY THE APPLICATION]\n" + roomContext + "\n" + attendanceEvidence(attendance) + "\n[PRIVATE LEADER BUD MEMORY]\n" + budMemoryStore.context(roomName, "leader") + "\n\nLEADER QUESTION:\n" + text,
-          sourceContext: sourceContext,
+          question: responseBrief + "\n\nAUTHORITATIVE WORKSHOP CONTEXT:\n[" + sourceContext.label.toUpperCase() + " IS SUPPLIED ABOVE BY THE APPLICATION]\n" + roomContext + "\n" + attendanceEvidence(attendance) + "\n[STRUCTURED CONTEXTUAL MEMORY RETRIEVAL]\n" + memoryContext + "\n\n[PRIVATE LEADER BUD MEMORY]\n" + privateLeaderMemory,
+          sourceContext: personalContext ? privateMemorySourceContext(privateLeaderMemory) : sourceContext,
           source_context_chars: 3200,
           question_chars: 2400,
           max_tokens: LEADER_BUD_BEHAVIOR.max_tokens,
+          persona_name: "Leader Bud",
           timeout_ms: 45000,
-          system: LEADER_BUD_BEHAVIOR.system + " You are speaking privately with Leader " + leaderName + ". If asked who you are, identify yourself exactly as Leader Bud, the Leader's private workshop partner. Before answering, silently identify which supplied evidence supports the answer. If no supplied evidence supports a workshop-specific answer, use the required unknown response instead of guessing."
+          system: LEADER_BUD_BEHAVIOR.system + " You are speaking privately with Leader " + leaderName + ". Stay in the Leader Bud voice even when source material is written to learners. If asked who you are, identify yourself exactly as Leader Bud, the Leader's private workshop partner. Before answering, silently identify which supplied evidence supports the answer. If no supplied evidence supports a workshop-specific answer, say briefly what cannot be confirmed instead of guessing."
         });
         budMemoryStore.append(roomName, "leader", "leader", text);
         if (localReply) {
-          budMemoryStore.append(roomName, "leader", "bud", localReply.text);
+          const replyText = personalContext && asksUnknownPersonalFact(text) && !hasUnknownPersonalFactBoundary(localReply.text)
+            ? unknownPersonalFactLeaderReply(text)
+            : normalizeLeaderBudReply(localReply.text);
+          budMemoryStore.append(roomName, "leader", "bud", replyText);
           runtime.recordPrivateMessage({
             message_id: "message-facil-bud-" + Date.now(),
             scope: "private_facilitator_ai",
             target_id: "facilitator-1",
             sender: "facil-bud",
-            text: localReply.text,
+            text: replyText,
             provider: localReply.provider,
             latency_ms: localReply.latency_ms,
             created_at: new Date().toISOString()
@@ -905,19 +1353,24 @@ function createServer(options) {
     if (req.method === "POST" && req.url === "/api/group-message") {
       return readJson(req, res, function (body) {
         const participantId = body.participant_id || config.participant_id;
+        const roomName = cleanRoomName(body.room_name || DEFAULT_ROOM);
+        participantRoomByTarget[participantId] = roomName;
+        rememberLearnerName(learnerNamesByRoom, roomName, participantId, body.sender_display_name);
         const text = String(body.text || "").trim();
         if (!text) {
           return sendJson(res, { error: "Message text is required" }, 400);
         }
+        const groupId = String(body.group_id || "group-main");
+        const messageScope = groupId === "group-main" ? "public_shared" : "group_shared";
         const event = baseEvent({
           event_id: "ui-group-message-" + Date.now(),
           type: "participant_message",
           source: "web",
-          privacy_scope: "group_shared",
+          privacy_scope: messageScope,
           actor: { actor_type: "participant", participant_id: participantId },
           payload: {
             message_id: "message-group-" + Date.now(),
-            group_id: body.group_id || "group-main",
+            group_id: groupId,
             text: text,
             language: body.language || "en"
           }
@@ -925,9 +1378,9 @@ function createServer(options) {
         const result = runtime.handleEvent(event);
         runtime.recordSharedMessage({
           message_id: event.payload.message_id,
-          scope: "group_shared",
+          scope: messageScope,
           target_id: event.payload.group_id,
-          room_name: String(body.room_name || DEFAULT_ROOM).trim(),
+          room_name: roomName,
           sender_id: participantId,
           sender_display_name: String(body.sender_display_name || participantId),
           text: text,
@@ -937,7 +1390,7 @@ function createServer(options) {
         sendJson(res, {
           event: event,
           result: summarizeResult(result),
-          state: learnerState(runtime, participantId)
+          state: learnerState(runtime, participantId, roomName)
         });
       });
     }
@@ -994,22 +1447,51 @@ function createServer(options) {
       return readJson(req, res, function (body) {
         const participantId = String(body.participant_id || config.participant_id).trim();
         const roomName = cleanRoomName(body.room_name || DEFAULT_ROOM);
+        participantRoomByTarget[participantId] = roomName;
+        rememberLearnerName(learnerNamesByRoom, roomName, participantId, body.display_name);
         const taskId = String(body.task_id || "").trim();
         const response = String(body.response || "").trim();
         if (!taskId || !["green", "yellow", "red"].includes(response)) {
           return sendJson(res, { error: "Task id and response are required" }, 400);
         }
+        const previousResponse = learnerTaskResponses(runtime.getStateSnapshot(), roomName, participantId)[taskId];
+        const taskText = String(body.task_text || "").trim() || "Current task";
         runtime.recordTaskResponse({
           room_name: roomName,
           task_id: taskId,
           task_index: Number.isFinite(Number(body.task_index)) ? Number(body.task_index) : null,
-          task_text: String(body.task_text || "").trim(),
+          task_text: taskText,
           section: String(body.section || "").trim(),
           participant_id: participantId,
           display_name: String(body.display_name || participantId).trim(),
           response: response,
           updated_at: new Date().toISOString()
         });
+        if (response === "yellow" || response === "red") {
+          budMemoryStore.recordSupport(roomName, participantId, {
+            status: "open",
+            task: taskText,
+            signal: response === "red" ? "marked as needing help" : "marked as somewhat clear"
+          });
+          if (previousResponse !== response) {
+            runtime.recordPrivateMessage({
+              message_id: "message-bud-support-signal-" + Date.now(),
+              target_id: participantId,
+              sender: "bud",
+              text: response === "red"
+                ? "I saw you marked \"" + taskText + "\" as needing help. Want a short explanation or a smaller first step?"
+                : "I saw \"" + taskText + "\" is only somewhat clear. Which part would you like to make clearer?",
+              provider: "support-signal-checkin",
+              created_at: new Date().toISOString()
+            });
+          }
+        } else if ((previousResponse === "yellow" || previousResponse === "red") && response === "green") {
+          budMemoryStore.recordSupport(roomName, participantId, {
+            status: "resolved",
+            task: taskText,
+            signal: "learner later marked the task as clear"
+          });
+        }
         sendJson(res, { ok: true, state: learnerState(runtime, participantId, roomName) });
       });
     }
@@ -1049,6 +1531,8 @@ function createServer(options) {
 
     sendJson(res, { error: "Not found" }, 404);
   });
+
+  return server;
 }
 
 function cleanRoomName(value) {
@@ -1071,6 +1555,629 @@ function attendanceEvidence(attendance) {
     " registered learners present, " + registeredAbsent +
     " registered learners absent, and " + guestsPresent +
     " guests present.";
+}
+
+function rememberAttendanceContext(attendanceByRoom, roomName, candidate) {
+  if (!candidate || typeof candidate !== "object") {
+    return attendanceByRoom[roomName] || null;
+  }
+  const registeredPresent = Number(candidate.registered_present);
+  const registeredAbsent = Number(candidate.registered_absent);
+  const guestsPresent = Number(candidate.guests_present);
+  if ([registeredPresent, registeredAbsent, guestsPresent].some(function (value) {
+    return !Number.isFinite(value) || value < 0;
+  })) {
+    return attendanceByRoom[roomName] || null;
+  }
+  attendanceByRoom[roomName] = Object.assign({}, candidate, {
+    registered_present: registeredPresent,
+    registered_absent: registeredAbsent,
+    guests_present: guestsPresent,
+    updated_at: new Date().toISOString()
+  });
+  return attendanceByRoom[roomName];
+}
+
+function asksAttendanceQuestion(question, snapshot) {
+  const text = String(question || "").toLowerCase();
+  const asksForCount = /\b(how many|number of|count of|how much)\b/.test(text);
+  const mentionsAttendance = /\b(attendance|present|absent|learner|learners|student|students|participant|participants|guest|guests|roster)\b/.test(text);
+  if (asksForCount && mentionsAttendance) return true;
+  return asksForCount && /\b(now|there|currently|right now)\b/.test(text) &&
+    lastLeaderBudProvider(snapshot) === "attendance-context";
+}
+
+function lastLeaderBudProvider(snapshot) {
+  const messages = (snapshot && snapshot.messages || []).filter(function (message) {
+    return message.scope === "private_facilitator_ai" &&
+      (message.sender === "facil-bud" || message.sender === "leader-bud");
+  });
+  return messages.length ? messages[messages.length - 1].provider || "" : "";
+}
+
+function attendanceCountReply(attendance) {
+  const registeredPresent = Number(attendance.registered_present) || 0;
+  const registeredAbsent = Number(attendance.registered_absent) || 0;
+  const guestsPresent = Number(attendance.guests_present) || 0;
+  const presentTotal = registeredPresent + guestsPresent;
+  return "There are currently " + presentTotal + " learners present: " + registeredPresent +
+    " registered learners and " + guestsPresent + " guests." +
+    (registeredAbsent ? " " + registeredAbsent + " registered learners are absent." : "");
+}
+
+function attendanceUnavailableReply() {
+  return "I do not have a current attendance record for this room, so I cannot confirm the count. Refresh or provide the attendance list and I will use that source.";
+}
+
+function asksSensitiveDemographicCount(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(how many|number of|count of|which|who)\b/.test(text) &&
+    /\b(gay|straight|lesbian|bisexual|transgender|trans|queer|religion|muslim|christian|hindu|buddhist|race|ethnicity|disabled|disability)\b/.test(text);
+}
+
+function asksPersonalSensitiveIdentity(value) {
+  const text = String(value || "").trim().toLowerCase().replace(/[’‘]/g, "'").replace(/[.!?]+$/g, "");
+  return /\b(am i|do i seem|could i be|what if i am|i think i might be)\b/.test(text) &&
+    /\b(gay|straight|lesbian|bisexual|bi|transgender|trans|queer|religious|muslim|christian|hindu|buddhist|disabled|autistic|neurodivergent|depressed|anxious|adhd)\b/.test(text);
+}
+
+function personalSensitiveIdentityReply(value) {
+  const text = String(value || "").toLowerCase();
+  if (/\b(gay|straight|lesbian|bisexual|bi|queer)\b/.test(text)) {
+    return "I can't decide that for you. If you're wondering about it, that's okay; take your time with what feels true and safe for you.";
+  }
+  if (/\b(transgender|trans)\b/.test(text)) {
+    return "I can't decide that for you. If you're exploring your gender, it's okay to take your time and talk it through with someone you trust.";
+  }
+  if (/\b(depressed|anxious|adhd|autistic|neurodivergent)\b/.test(text)) {
+    return "I can't diagnose that for you. If it's weighing on you, it may be worth talking with someone qualified or someone you trust.";
+  }
+  return "I can't decide a personal identity for you. I can listen, reflect back what you share, and keep the workshop support steady.";
+}
+
+function asksRecentLeaderQuestion(value) {
+  const text = String(value || "").trim().toLowerCase().replace(/[’‘]/g, "'").replace(/[.!?]+$/g, "");
+  return /\b(what did i just ask|what was my last question|what did i say|what was i asking)\b/.test(text);
+}
+
+function recentLeaderQuestionReply(snapshot) {
+  const last = recentLeaderQuestion(snapshot);
+  if (!last) return "I don't have an earlier Leader question in this chat yet.";
+  return "You just asked: \"" + compactText(last, 180) + "\"";
+}
+
+function recentLeaderQuestion(snapshot) {
+  const messages = Array.isArray(snapshot && snapshot.messages) ? snapshot.messages : [];
+  let skippedCurrent = false;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (!message || message.scope !== "private_facilitator_ai" || message.sender !== "facilitator") continue;
+    const text = String(message.text || "").trim();
+    if (!text) continue;
+    if (!skippedCurrent) {
+      skippedCurrent = true;
+      continue;
+    }
+    return text;
+  }
+  return "";
+}
+
+function asksUnsupportedMindReading(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(what|why|how)\b/.test(text) &&
+    /\b(thinking|feeling|intending|planning|believes|wants|hiding)\b/.test(text);
+}
+
+function unsupportedMindReadingReply(value) {
+  const name = extractPersonSubject(value) || "that learner";
+  return "I can't know what " + name + " is thinking. I can help you look at observable signals, messages, attendance, or support requests instead.";
+}
+
+function asksNegativeLearnerLabel(value) {
+  const text = String(value || "").toLowerCase();
+  if (/^\s*this\s+is\b/.test(text)) return false;
+  return /\b(who|which|is|are|tell me|show me)\b/.test(text) &&
+    /\b(lazy|weak|dumb|stupid|bad|worst|problem learner|slow)\b/.test(text);
+}
+
+function negativeLearnerLabelReply(value) {
+  const name = extractPersonSubject(value);
+  if (name) {
+    return "I wouldn't label " + name + " that way. I can help you look for concrete support signals, confusion, missing work, or participation patterns.";
+  }
+  return "I wouldn't rank or label learners that way. I can help identify who may need support using observable signals and workshop evidence.";
+}
+
+function asksBullyingOrHostileAction(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(help me|i want to|let's|can you|tell me how to|make them)\b/.test(text) &&
+    /\b(bully|humiliate|shame|harass|mock|insult|punish|hurt|target|embarrass)\b/.test(text);
+}
+
+function bullyingOrHostileActionReply() {
+  return "I can't help target or humiliate anyone. I can help you de-escalate, set a firm boundary, or turn this into a support plan.";
+}
+
+function isFrustratedAtBud(value) {
+  const text = String(value || "").trim().toLowerCase().replace(/[.!?]+$/g, "");
+  return /^(you suck|this sucks|bad bot|bad bud|not helpful|useless|you are useless|you're useless|that was useless)$/.test(text);
+}
+
+function asksLeaderDistressOrSelfDoubt(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(i am|i'm|i feel|i hate|i want|this is|am i|do i seem)\b/.test(text) &&
+    /\b(bored|overwhelmed|stuck|lost|dumb|stupid|bad at this|hate this workshop|quit|give up|depressed|anxious|panic)\b/.test(text);
+}
+
+function leaderDistressOrSelfDoubtReply(value) {
+  const text = String(value || "").toLowerCase();
+  if (/\bthis is stupid\b/.test(text)) {
+    return "Yeah, this may feel clunky. Give me one part to untangle, or ask me to turn it into a clearer next step.";
+  }
+  if (/\b(dumb|stupid|bad at this)\b/.test(text)) {
+    return "You are not dumb. This is just a messy moment; give me one concrete thing to untangle, or ask me to simplify the next step.";
+  }
+  if (/\b(overwhelmed|panic|anxious|lost|stuck)\b/.test(text)) {
+    return "Let's slow it down. Pick one thing: lesson plan, learner signals, or source material, and I'll help you make the next move.";
+  }
+  if (/\b(quit|give up|hate this workshop|bored)\b/.test(text)) {
+    return "Fair. Let's make it smaller: I can turn the current lesson into one clear next action or check what learners need right now.";
+  }
+  if (/\b(depressed|anxious)\b/.test(text)) {
+    return "I'm sorry you're feeling that. I can't diagnose it, but we can make the next few minutes smaller: pause, breathe, and pick one concrete thing for me to help with.";
+  }
+  return "I hear you. Tell me the part that feels messy, and I'll help make it smaller.";
+}
+
+function extractPersonSubject(value) {
+  const text = String(value || "").trim();
+  const match = text.match(/\b(?:is|are|what is|what's|why is|how is)\s+([a-z][a-z' -]{1,40}?)\s+(?:thinking|feeling|intending|planning|hiding|lazy|weak|dumb|stupid|bad|slow)\b/i);
+  return match && match[1] ? titleCaseName(match[1]) : "";
+}
+
+function asksLeaderNextStep(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(what should i do next|what now|next step|where do i start|help me move forward)\b/.test(text);
+}
+
+function leaderNextStepReply(sourcePackStore, roomName) {
+  const material = sourcePackStore.pages(roomName);
+  if (String(material.learning_plan || "").trim()) {
+    return "Start with the first learner task in the locked plan, then check whether anyone is stuck before moving on.";
+  }
+  if (material.pages && material.pages.length) {
+    return "Start by turning the uploaded source material into one learner task and one quick comprehension check.";
+  }
+  return "Start by uploading or locking the source material, then I can help turn it into a learner task and a quick check.";
+}
+
+function asksSchedule(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(schedule|timeline|agenda|timing|time plan)\b/.test(text);
+}
+
+function scheduleReply(sourcePackStore, roomName) {
+  const material = sourcePackStore.pages(roomName);
+  const plan = String(material.learning_plan || "").trim();
+  if (plan && /\bestimated time\b/i.test(plan)) {
+    return "I can see timing inside the locked learning plan. It looks like the lesson is broken into short sections with estimated times, but I don't see a separate full schedule.";
+  }
+  return "I don't see a separate schedule yet. I can help build one from the lesson plan or uploaded material.";
+}
+
+function isCasualLeaderMessage(value) {
+  const text = String(value || "").trim().toLowerCase().replace(/[’‘]/g, "'").replace(/[.!?]+$/g, "");
+  if (!text) return false;
+  if (/^(hi|hello|hey|yo|thanks|thank you|ok|okay|cool|great|nice|got it|alright|lol ok|haha ok|sure|yep|yes)$/.test(text)) return true;
+  if (/^(hi|hello|hey|yo)(?:\s+(?:there|yo|bud|everyone|all))?$/.test(text)) return true;
+  if (/^(how'?s it going|how are you|you good|all good|how is bud|how are things)$/.test(text)) return true;
+  if (/^(what are you doing|are you alive|are you real|you there|still there)$/.test(text)) return true;
+  return text.length <= 100 &&
+    /\b(coffee|tea|snack|lunch|keys|phone|water bottle|notes|notebook)\b/.test(text) &&
+    !/\b(learner|student|participant|lesson|workshop|source|material|plan|attendance|task)\b/.test(text);
+}
+
+function casualLeaderReply(value) {
+  const text = String(value || "").trim().toLowerCase().replace(/[’‘]/g, "'");
+  if (/^(hi|hello|hey|yo)(?:\s+(?:there|yo|bud|everyone|all))?[.!?]*$/.test(text)) {
+    return "Hey, I'm here. What do you want to look at?";
+  }
+  if (/^(lol ok|haha ok|ok|okay|cool|great|nice|got it|alright|sure|yep|yes)$/.test(text)) {
+    return "Got it. I'm here when you want the next move.";
+  }
+  if (/^(thanks|thank you)\b/.test(text)) {
+    return "You are welcome. I am here with the workshop context when you need me.";
+  }
+  if (/\b(how'?s it going|how are you|you good|all good|how is bud|how are things)\b/.test(text)) {
+    return "I'm here and ready. Want me to check the learner signals, clean up the lesson plan, or look at the workshop context?";
+  }
+  if (/\b(what are you doing|are you alive|are you real|you there|still there)\b/.test(text)) {
+    return "I'm here with you. I can read the room, check the lesson plan, or help decide the next move.";
+  }
+  if (/\bcoffee\b/.test(text)) {
+    return "I wish I knew. I can keep the workshop thread warm while you hunt it down.";
+  }
+  if (/\b(tea|snack|lunch|keys|phone|water bottle)\b/.test(text)) {
+    return "I don't know where that is, but I can hold the workshop thread while you check.";
+  }
+  if (/\b(notes|notebook)\b/.test(text)) {
+    return "I don't know where your notes are. I can help reconstruct the thread from the uploaded material and lesson plan.";
+  }
+  return "Hi, I am Leader Bud, here to help with your workshop context and learners.";
+}
+
+function asksNamedAttendance(value) {
+  const text = String(value || "").trim().toLowerCase();
+  return /\b(is|are|was|were|has|have|did)\b/.test(text) &&
+    /\b(in|inside|attending|present|here|joined|join|workshop|room|class|session)\b/.test(text) &&
+    extractLikelyPersonName(text);
+}
+
+function namedAttendanceReply(question, attendance, peopleMemory) {
+  const name = extractLikelyPersonName(question);
+  const presentNames = namesFromAttendance(attendance.registered_present_names).concat(namesFromAttendance(attendance.guest_present_names));
+  const absentNames = namesFromAttendance(attendance.registered_absent_names);
+  const presentMatch = findNameMatch(name, presentNames);
+  if (presentMatch) return presentMatch + " is marked present in the workshop attendance list.";
+  const absentMatch = findNameMatch(name, absentNames);
+  if (absentMatch) return absentMatch + " is on the registered list but is currently marked absent.";
+  const ledgerMatch = findLedgerPresenceMatch(name, peopleMemory);
+  if (ledgerMatch) return ledgerMatch + " appears in the live presence ledger for this workshop.";
+  if (presentNames.length || absentNames.length) {
+    return "I do not see " + name + " in the current attendance list. I can only answer from the roster and live presence data supplied to Leader Bud.";
+  }
+  return "I only have attendance counts right now, not participant names, so I cannot confirm whether " + name + " is in the workshop.";
+}
+
+function asksNamedLearnerWellbeing(value) {
+  const text = String(value || "").trim().toLowerCase();
+  return /\b(is|are|how is|how are)\b/.test(text) &&
+    /\b(ok|okay|alright|doing|coping|fine|progress|stuck|struggling|understanding)\b/.test(text) &&
+    extractLikelyLearnerStatusName(text);
+}
+
+function namedLearnerWellbeingReply(question, attendance, snapshot, peopleMemory) {
+  const name = extractLikelyLearnerStatusName(question);
+  const presentNames = namesFromAttendance(attendance.registered_present_names).concat(namesFromAttendance(attendance.guest_present_names));
+  const absentNames = namesFromAttendance(attendance.registered_absent_names);
+  const presentMatch = findNameMatch(name, presentNames);
+  const absentMatch = findNameMatch(name, absentNames);
+  const ledgerMatch = findLedgerPresenceMatch(name, peopleMemory);
+  if (absentMatch) return absentMatch + " is currently marked absent, so I do not have live workshop progress evidence for them.";
+  if (!presentMatch && !ledgerMatch) return "I do not see " + name + " in the current attendance or presence context, so I cannot assess how they are doing.";
+  const signals = (snapshot.workshop && snapshot.workshop.facilitator_signals || []).filter(function (signal) {
+    return normalizeName(signal.participant_id).indexOf(normalizeName(name)) !== -1 ||
+      normalizeName(signal.summary).indexOf(normalizeName(name)) !== -1;
+  }).slice(-2);
+  if (signals.length) {
+    return (presentMatch || ledgerMatch) + " is marked present. I see this public support signal: " + compactText(signals.map(function (signal) { return signal.summary; }).join(" "), 220);
+  }
+  return (presentMatch || ledgerMatch) + " is marked present, but I do not have enough public comprehension or participation evidence yet to say whether they are doing ok.";
+}
+
+function asksRoomLearnerStatus(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(how are|how's|are|is)\b/.test(text) &&
+    /\b(students?|learners?|participants?|class|everyone|the room)\b/.test(text) &&
+    /\b(today|doing|ok|okay|alright|coping|progress|engaged|understanding|going)\b/.test(text);
+}
+
+function roomLearnerStatusReply(snapshot, roomName, attendance) {
+  const insights = taskInsightSummary(snapshot, roomName);
+  const responses = insights.reduce(function (sum, task) { return sum + task.total; }, 0);
+  const difficulty = insights.reduce(function (sum, task) { return sum + task.difficulty_count; }, 0);
+  const clear = insights.reduce(function (sum, task) { return sum + task.counts.green; }, 0);
+  const somewhatClear = insights.reduce(function (sum, task) { return sum + task.counts.yellow; }, 0);
+  const needHelp = insights.reduce(function (sum, task) { return sum + task.counts.red; }, 0);
+  const supportNames = namedTaskSupport(insights);
+  const supportSignals = (snapshot.workshop && snapshot.workshop.facilitator_signals || []).filter(function (signal) {
+    return signal && signal.severity !== "resolved";
+  });
+  const recentChat = roomChatStatus(snapshot, roomName);
+  const attendanceNote = attendance && attendanceEvidence(attendance).indexOf("unavailable") === -1
+    ? attendanceCountReply(attendance)
+    : "";
+  if (!responses) {
+    return [
+      attendanceNote,
+      "I do not have task self-reports yet, so I cannot make a reliable whole-room judgement.",
+      recentChat || "There are no recent public or breakout chat messages to add context.",
+      "Quiet learners should remain unknown rather than assumed to be fine."
+    ].filter(Boolean).join(" ");
+  }
+  return [
+    attendanceNote,
+    "Room insights show " + responses + " task check-in" + (responses === 1 ? "" : "s") + ": " +
+      clear + " clear, " + somewhatClear + " somewhat clear, and " + needHelp + " needing help.",
+    difficulty ? difficulty + " check-in" + (difficulty === 1 ? " indicates" : "s indicate") + " uncertainty or a need for support." : "No task check-in currently signals difficulty.",
+    supportNames.length ? "Learners who explicitly requested support: " + supportNames.join(", ") + "." : "",
+    supportSignals.length ? supportSignals.length + " public support signal" + (supportSignals.length === 1 ? " is" : "s are") + " open." : "No public support signals are open.",
+    recentChat,
+    "These are task and chat signals, not a judgement about every learner; anyone without a check-in remains unknown."
+  ].filter(Boolean).join(" ");
+}
+
+function namedTaskSupport(insights) {
+  const seen = {};
+  return insights.reduce(function (names, task) {
+    return names.concat((task.needs_support || []).map(function (item) {
+      const key = item.participant_id + "|" + item.response + "|" + task.task_id;
+      if (seen[key]) return "";
+      seen[key] = true;
+      return item.display_name + " (" + (item.response === "red" ? "needs help" : "somewhat clear") + " on " + compactText(task.task_text || "this task", 72) + ")";
+    }).filter(Boolean));
+  }, []);
+}
+
+function roomChatStatus(snapshot, roomName) {
+  const messages = (snapshot.messages || []).filter(function (message) {
+    return message.text && (message.scope === "public_shared" || message.scope === "group_shared") &&
+      String(message.room_name || DEFAULT_ROOM) === roomName;
+  });
+  const recent = deduplicateSharedChatMessages(messages).slice(-2);
+  if (!recent.length) return "";
+  return "Recent shared chat: " + recent.map(function (message) {
+    const speaker = message.sender_display_name || message.sender_id || "A participant";
+    const location = message.target_id && message.target_id !== "group-main" ? " in " + message.target_id : " in the workshop chat";
+    return speaker + location + " said, \"" + compactText(message.text, 150) + "\"";
+  }).join(" ");
+}
+
+function asksRoomLearnerStatusFollowup(value, snapshot) {
+  const text = String(value || "").toLowerCase();
+  if (!/\bhow (?:are|r)\b/.test(text) || !/\b(they|them|students?|learners?|participants?|everyone)\b/.test(text) ||
+      !/\b(doing|going|ok|okay|alright|coping|progress|engaged|understanding)\b/.test(text)) return false;
+  const previous = mostRecentLeaderBudMessage(snapshot);
+  return Boolean(previous && previous.provider === "room-status-context");
+}
+
+function asksEvidenceBasis(value) {
+  const text = String(value || "").toLowerCase().trim();
+  return /\b(how do you know|what makes you say that|what are you basing|what evidence|source for that)\b/.test(text);
+}
+
+function evidenceBasisReply(snapshot, attendance) {
+  const messages = (snapshot && snapshot.messages || []).filter(function (message) {
+    return message.scope === "private_facilitator_ai" &&
+      (message.sender === "facil-bud" || message.sender === "leader-bud");
+  });
+  const previous = messages.length ? messages[messages.length - 1] : null;
+  if (!previous) return "I do not have a previous claim to support. I can only use attendance, public task signals, shared chat, and the uploaded workshop materials.";
+  if (previous.provider === "attendance-context") return "I used the current attendance record supplied to Leader Bud: registered learners present and absent, plus guests present.";
+  if (previous.provider === "shared-chat-context") return "I used the recent public and breakout chat messages available to Leader Bud. I did not use private learner Bud conversations.";
+  if (previous.provider === "room-status-context" || previous.provider === "learner-status-context") return "I used only current attendance and public task or support signals. I did not infer private feelings or assume that quiet learners are disengaged.";
+  if (previous.provider && previous.provider.indexOf("qwen") !== -1) return "I do not have a reliable workshop source for that overall claim. I should not present it as a fact; I can check attendance, public task signals, or room chat instead.";
+  return "I can support workshop claims only with the current attendance record, public task signals, shared chat, or uploaded materials. I do not infer a learner's state from the lesson document alone.";
+}
+
+function findLedgerPresenceMatch(name, peopleMemory) {
+  const needle = normalizeName(name);
+  if (!needle || !peopleMemory || /no relevant permitted ledger entries/i.test(peopleMemory)) return "";
+  const lines = String(peopleMemory || "").split("\n");
+  const match = lines.find(function (line) {
+    return normalizeName(line).indexOf(needle) !== -1 && /\bconnected\b/i.test(line);
+  });
+  if (!match) return "";
+  const nameMatch = match.match(/\|\s*([^|]+?)\s*\|[^|]*\|\s*[^|]*currently connected/i) ||
+    match.match(/summary:\s*([^|.]+?)\s+is currently connected/i);
+  return titleCaseName(nameMatch && nameMatch[1] ? nameMatch[1].trim() : name);
+}
+
+function extractLikelyLearnerStatusName(value) {
+  const text = String(value || "").trim();
+  const patterns = [
+    /\bis\s+([a-z][a-z' -]{1,40}?)\s+(?:doing|ok|okay|alright|fine|stuck|struggling|understanding|making)\b/i,
+    /\bhow\s+is\s+([a-z][a-z' -]{1,40}?)(?:\s+doing|\s+coping|\s+progressing|\s*$|\?)/i
+  ];
+  for (let index = 0; index < patterns.length; index += 1) {
+    const match = text.match(patterns[index]);
+    if (match && match[1]) return titleCaseName(match[1]);
+  }
+  return "";
+}
+
+function namesFromAttendance(value) {
+  return Array.isArray(value)
+    ? value.map(function (name) { return String(name || "").trim(); }).filter(Boolean).slice(0, 80)
+    : [];
+}
+
+function findNameMatch(name, names) {
+  const needle = normalizeName(name);
+  return names.find(function (candidate) {
+    const normalized = normalizeName(candidate);
+    return normalized === needle || normalized.split(/\s+/).indexOf(needle) !== -1;
+  }) || "";
+}
+
+function normalizeName(value) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function extractLikelyPersonName(value) {
+  const text = String(value || "").trim();
+  const patterns = [
+    /\bis\s+([a-z][a-z' -]{1,40}?)\s+(?:in|inside|attending|present|here|joined|joining|part of)\b/i,
+    /\bhas\s+([a-z][a-z' -]{1,40}?)\s+(?:joined|arrived|come)\b/i,
+    /\bdid\s+([a-z][a-z' -]{1,40}?)\s+(?:join|arrive|come)\b/i
+  ];
+  for (let index = 0; index < patterns.length; index += 1) {
+    const match = text.match(patterns[index]);
+    if (match && match[1]) return titleCaseName(match[1]);
+  }
+  return "";
+}
+
+function titleCaseName(value) {
+  return String(value || "").replace(/\b[a-z]/gi, function (letter) { return letter.toUpperCase(); }).trim();
+}
+
+function asksCurrentLesson(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(what|what'?s|whats|where|which|tell|summari[sz]e|recap)\b/.test(text) &&
+    /\b(lesson|topic|learning plan|plan|workshop|workshop material|source material|material|today)\b/.test(text) &&
+    /\b(today|current|now|this workshop|workshop|lesson|topic|plan|about)\b/.test(text);
+}
+
+function currentLessonReply(sourcePackStore, roomName) {
+  const material = sourcePackStore.pages(roomName);
+  const plan = String(material.learning_plan || "").trim();
+  const sourceText = material.pages && material.pages.length
+    ? material.pages.map(function (page) { return page.text; }).filter(Boolean).join("\n\n")
+    : "";
+  const sourceFocus = workshopFocusFromMaterial(sourceText);
+  if (sourceFocus) {
+    return sourceFocus + (plan
+      ? " The locked plan turns that into reading the material, asking about unclear parts, completing the task, and checking in."
+      : "");
+  }
+  if (plan) {
+    return "Today's locked learning plan is: " + compactText(plan, 520);
+  }
+  if (material.pages && material.pages.length) {
+    const filenames = unique(material.pages.map(function (page) { return page.filename; }).filter(Boolean));
+    const firstText = material.pages.map(function (page) { return page.text; }).filter(Boolean).join("\n\n");
+    return "Today's source material is " + filenames.join(", ") + ". It focuses on: " + compactText(firstText, 420);
+  }
+  const draftContext = sourcePackStore.context(roomName, "current lesson topic learning plan workshop material", { include_draft: true, all_chunks: true });
+  if (draftContext.text) {
+    return "A draft source material upload is available but has not been locked yet. It focuses on: " + compactText(draftContext.text, 420);
+  }
+  return "No lesson material or learning plan has been uploaded for this room yet.";
+}
+
+function workshopFocusFromMaterial(value) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  if (/\bbounded agency\b|\bmore than a tool\b/i.test(text)) {
+    return "Today's workshop is about Bud as a workshop partner, not just a tool that waits for instructions. It covers how Bud follows the learner's task, page, questions, and recorded progress, offers timely help, and keeps privacy and human judgment in place.";
+  }
+  return "Today's source material focuses on: " + compactText(text, 360);
+}
+
+function asksToExplainPrevious(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(make sense|explain|clarify|simplif(?:y|ied)|break\s+it\s+down|help me understand|what does (?:this|that|it) mean)\b/.test(text) &&
+    /\b(this|that|it|first|above|previous|earlier)\b/.test(text);
+}
+
+function explainPreviousLeaderContext(snapshot, sourcePackStore, roomName) {
+  const lastBudText = recentLeaderBudText(snapshot);
+  const material = sourcePackStore.pages(roomName);
+  const plan = String(material.learning_plan || "").trim();
+  if (plan && /learning plan|lesson|section|learner task|completion|source material/i.test(lastBudText + "\n" + plan)) {
+    return "In plain terms, today's lesson is asking learners to work through the current material, identify the main idea, ask Bud when something is unclear, and complete a short reflection/check. The plan is grounded in the locked lesson plan, but the wording still looks quite generic, so it may need a clearer Leader-edited version before running live.";
+  }
+  if (lastBudText) {
+    return "I was referring to my previous answer: " + compactText(lastBudText, 420);
+  }
+  return "I do not have enough previous chat context to know what 'this' refers to. Which lesson section or message should I explain first?";
+}
+
+function recentLeaderBudText(snapshot) {
+  const message = mostRecentLeaderBudMessage(snapshot);
+  return message ? String(message.text || "").trim() : "";
+}
+
+function mostRecentLeaderBudMessage(snapshot) {
+  const messages = Array.isArray(snapshot && snapshot.messages) ? snapshot.messages : [];
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message && message.scope === "private_facilitator_ai" &&
+      (message.sender === "facil-bud" || message.sender === "leader-bud")) return message;
+  }
+  return null;
+}
+
+function asksSharedChat(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(what|summari[sz]e|recap|show|tell)\b/.test(text) &&
+    /\b(chat|said|say|message|messages|breakout|room)\b/.test(text);
+}
+
+function sharedChatReply(question, snapshot, roomName) {
+  const requestedGroup = requestedChatGroup(question);
+  const requestedSpeaker = requestedChatSpeaker(question);
+  const wantsAllBreakouts = !requestedGroup && /\bbreakout(?:\s+rooms?)?\b/i.test(String(question || ""));
+  let messages = (snapshot.messages || []).filter(function (message) {
+    return message.text &&
+      (message.scope === "public_shared" || message.scope === "group_shared") &&
+      (!message.room_name || message.room_name === roomName);
+  });
+  if (requestedGroup) {
+    messages = messages.filter(function (message) { return message.target_id === requestedGroup; });
+  } else if (wantsAllBreakouts) {
+    messages = messages.filter(function (message) { return /^breakout-room-\d+$/.test(String(message.target_id || "")); });
+  }
+  if (requestedSpeaker) {
+    const speaker = normalizeName(requestedSpeaker);
+    messages = messages.filter(function (message) {
+      return normalizeName(message.sender_display_name || message.sender_id || message.sender).indexOf(speaker) !== -1;
+    });
+  }
+  // Replayed chat events can appear more than once in the runtime snapshot.
+  // Keep distinct contributions, but never make the Leader read the same message twice.
+  messages = deduplicateSharedChatMessages(messages).slice(-5);
+  if (!messages.length) {
+    const scope = requestedGroup ? requestedGroup : requestedSpeaker ? requestedSpeaker : "the shared workshop chat";
+    return "I do not have any recent public or breakout chat messages for " + scope + ".";
+  }
+  return "Recent shared chat: " + messages.map(function (message) {
+    const sender = message.sender_display_name || message.sender_id || "Participant";
+    const target = message.target_id && message.target_id !== "group-main" ? " in " + message.target_id : "";
+    return sender + target + " said, \"" + compactText(message.text, 180) + "\"";
+  }).join(" ");
+}
+
+function deduplicateSharedChatMessages(messages) {
+  const seen = new Set();
+  return messages.filter(function (message) {
+    const key = [
+      message.scope || "",
+      message.target_id || "",
+      message.sender_id || message.sender_display_name || message.sender || "",
+      String(message.text || "").trim().replace(/\s+/g, " ").toLowerCase()
+    ].join("|");
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function requestedChatGroup(value) {
+  const text = String(value || "").toLowerCase();
+  const breakout = text.match(/\bbreakout(?:\s+room)?\s*(\d+)\b/);
+  if (breakout) return "breakout-room-" + breakout[1];
+  if (/\b(main|workshop|public)\s+(chat|room)\b/.test(text)) return "group-main";
+  return "";
+}
+
+function requestedChatSpeaker(value) {
+  const text = String(value || "").trim();
+  const patterns = [
+    /\bwhat\s+did\s+([a-z][a-z' -]{1,40}?)\s+(?:say|write|message)\b/i,
+    /\bwhat\s+was\s+([a-z][a-z' -]{1,40}?)\s+saying\b/i
+  ];
+  for (let index = 0; index < patterns.length; index += 1) {
+    const match = text.match(patterns[index]);
+    if (match && match[1] && !isGenericChatSubject(match[1])) return titleCaseName(match[1]);
+  }
+  return "";
+}
+
+function isGenericChatSubject(value) {
+  return /\b(the\s+)?(breakout\s+rooms?|main\s+room|workshop\s+room|public\s+chat|shared\s+chat|group|groups|room|rooms)\b/i.test(String(value || "").trim());
+}
+
+function compactText(value, maxCharacters) {
+  const text = String(value || "").replace(/[#*_`>]/g, "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxCharacters) return text;
+  return text.slice(0, maxCharacters).replace(/\s+\S*$/, "") + "...";
+}
+
+function unique(values) {
+  return values.filter(function (value, index) { return values.indexOf(value) === index; });
 }
 
 function isLikelyUnintelligible(value) {
@@ -1100,6 +2207,39 @@ function isCasualLearnerMessage(value) {
     !/\b(task|document|docs|material|lesson|workshop|page|explain|help|confused|stuck|understand)\b/.test(text);
 }
 
+function isLearnerPersonalContext(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(my|our)\s+(sister|brother|mother|father|mum|mom|dad|parent|partner|spouse|wife|husband|child|daughter|son|friend)\b/.test(text);
+}
+
+function asksUnknownPersonalFact(value) {
+  const text = String(value || "").toLowerCase();
+  return isLearnerPersonalContext(text) && /\b(what'?s|what is|who is|who's|tell me|do you know)\b/.test(text);
+}
+
+function privateMemorySourceContext(memory) {
+  return {
+    label: "Private learner Bud memory",
+    version: "private-memory",
+    text: String(memory || "No private Bud memory has been recorded yet.")
+  };
+}
+
+function hasUnknownPersonalFactBoundary(value) {
+  return /\b(not introduced|haven'?t introduced|have not introduced|haven'?t told|have not told|don'?t know|do not know|no information|not in (?:my|the) memory)\b/i.test(String(value || ""));
+}
+
+function unknownPersonalFactReply(question, workshopPrompt) {
+  const relation = (String(question || "").match(/\b(?:my|our)\s+([a-z]+)/i) || [])[1] || "that person";
+  const task = String(workshopPrompt || "the current workshop task").replace(/\s+/g, " ").trim();
+  return "I do not think you have introduced your " + relation + " to me yet, so I should not guess. Let us get back to " + (task || "the current workshop task") + ".";
+}
+
+function unknownPersonalFactLeaderReply(question) {
+  const relation = (String(question || "").match(/\b(?:my|our)\s+([a-z]+)/i) || [])[1] || "that person";
+  return "I do not think you have introduced your " + relation + " to me yet, so I should not guess. Let us get back to the workshop.";
+}
+
 function casualLearnerReply(value) {
   const text = String(value || "").trim().toLowerCase();
   if (/^(thanks|thank you)\b/.test(text)) {
@@ -1109,6 +2249,98 @@ function casualLearnerReply(value) {
     return "Got it. Keep going, and ask me when you want help with the task or workshop material.";
   }
   return "Hi, I am here with you. Ask me about the document, the current task, or anything that feels unclear.";
+}
+
+function rememberLearnerName(namesByRoom, roomName, participantId, displayName) {
+  const id = String(participantId || "").trim();
+  const name = String(displayName || "").trim();
+  if (!id) return "";
+  if (!namesByRoom[roomName]) namesByRoom[roomName] = {};
+  if (name && name.toLowerCase() !== "learner") namesByRoom[roomName][id] = name;
+  return namesByRoom[roomName][id] || "";
+}
+
+function asksLearnerName(value) {
+  return /\b(what'?s|what is|tell me)\s+my\s+name\b/i.test(String(value || ""));
+}
+
+function asksLeaderName(value) {
+  return asksLearnerName(value);
+}
+
+function asksGroupMates(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(who|which people|what people)\b/.test(text) &&
+    /\b(group mates?|groupmates|team mates?|teammates|breakout (group|room)|my group|my team)\b/.test(text);
+}
+
+function groupMatesReply(roomDirectory, roomName, participantId, learnerName) {
+  const room = roomDirectory.rooms[roomName] || {};
+  const assignment = (room.breakout_assignments || []).find(function (item) {
+    return (item.members || []).some(function (member) {
+      return String(member.participant_id || "").trim() === String(participantId || "").trim() ||
+        (learnerName && String(member.display_name || "").trim().toLowerCase() === learnerName.toLowerCase());
+    });
+  });
+  if (!assignment) return "You have not been assigned to a breakout group yet. Once the Leader assigns one, I can tell you who is in your group.";
+  const mates = (assignment.members || []).filter(function (member) {
+    return String(member.participant_id || "").trim() !== String(participantId || "").trim() &&
+      (!learnerName || String(member.display_name || "").trim().toLowerCase() !== learnerName.toLowerCase());
+  }).map(function (member) {
+    return String(member.display_name || member.participant_id || "").trim();
+  }).filter(Boolean);
+  if (!mates.length) return "You are the only person assigned to this breakout group right now.";
+  return "Your breakout group includes " + mates.join(", ") + ".";
+}
+
+function asksLearnerProgressStatus(value) {
+  const text = String(value || "").toLowerCase();
+  return /\b(how am i doing|how'?s my progress|am i doing (okay|ok|alright|well)|am i making progress|do i understand|do you think i understand)\b/.test(text);
+}
+
+function learnerProgressStatusReply(snapshot, roomName, participantId) {
+  const responses = learnerTaskResponses(snapshot, roomName, participantId);
+  const values = Object.keys(responses).map(function (taskId) { return responses[taskId]; });
+  const green = values.filter(function (value) { return value === "green"; }).length;
+  const yellow = values.filter(function (value) { return value === "yellow"; }).length;
+  const red = values.filter(function (value) { return value === "red"; }).length;
+  if (!values.length) {
+    return "I do not have a task check-in from you yet, so I cannot tell how the work is going for you. You can mark a task as clear, somewhat clear, or needing help, or tell me which part feels difficult.";
+  }
+  if (red) {
+    return "You marked " + red + " task" + (red === 1 ? "" : "s") + " as needing help. That tells me where you want support; it does not say anything negative about your ability. Let us take the next unclear part one step at a time.";
+  }
+  if (yellow) {
+    return "You marked " + yellow + " task" + (yellow === 1 ? "" : "s") + " as somewhat clear, and " + green + " as clear. That is a useful check-in, not a test result. Tell me which point you want to make clearer.";
+  }
+  return "You marked " + green + " task" + (green === 1 ? "" : "s") + " as clear. That is your own check-in, not proof that every detail is settled. I can still help you test an idea or explain a tricky part.";
+}
+
+function asksLearnerEvidenceBasis(value) {
+  const text = String(value || "").toLowerCase().trim();
+  return /\b(how do you know|what makes you say that|what are you basing|what evidence|source for that)\b/.test(text);
+}
+
+function learnerEvidenceBasisReply(snapshot, roomName, participantId) {
+  const messages = (snapshot && snapshot.messages || []).filter(function (message) {
+    return message.scope === "private_participant_ai" &&
+      message.target_id === participantId &&
+      String(message.room_name || DEFAULT_ROOM) === roomName &&
+      message.sender === "bud";
+  });
+  const previous = messages.length ? messages[messages.length - 1] : null;
+  if (!previous) return "I do not have a previous answer to support. I can use the active workshop material, your own task check-ins, and your private conversation with me.";
+  if (previous.provider === "learner-self-checkin-context") {
+    const checkinCount = Object.keys(learnerTaskResponses(snapshot, roomName, participantId)).length;
+    return checkinCount
+      ? "I used only your own task check-ins in this workshop. I did not compare you with other learners or infer anything from silence."
+      : "I checked your task check-ins for this workshop. None have been recorded yet, so I could not assess how the work is going for you.";
+  }
+  if (previous.provider === "source-pack-access") return "I used the active workshop material published for this room. I did not use another learner's private chat.";
+  if (previous.provider === "source-grounding-guard") return "I checked whether active workshop material was available for this room. It was not, so I did not try to fill in the gaps.";
+  if (previous.provider && previous.provider.indexOf("qwen") !== -1) return "I based that on the active workshop material and your permitted private context. I should not treat anything outside those sources as a fact, and I never use another learner's private chat.";
+  if (previous.provider === "learner-bud-casual") return "That was just a greeting, not a claim about your learning or the workshop.";
+  return "I can support answers with the active workshop material, your own task check-ins, and your private conversation with me. I do not have access to another learner's private chat.";
 }
 
 function documentAccessReply(material) {
@@ -1250,9 +2482,67 @@ function listRooms(roomDirectory) {
   });
 }
 
+function defaultRoomDirectory() {
+  return {
+    rooms: {
+      [DEFAULT_ROOM]: {
+        room_name: DEFAULT_ROOM,
+        allocations: {},
+        breakout_assignments: [],
+        participant_screen_share_enabled: false,
+        ready: false,
+        learning_plan_draft: "",
+        learning_plan: ""
+      }
+    }
+  };
+}
+
+function loadRoomDirectory(filePath) {
+  const fallback = defaultRoomDirectory();
+  try {
+    const stored = JSON.parse(fs.readFileSync(filePath, "utf8"));
+    if (!stored || typeof stored !== "object" || !stored.rooms || typeof stored.rooms !== "object") return fallback;
+    Object.keys(stored.rooms).forEach(function (roomName) {
+      const room = stored.rooms[roomName] || {};
+      stored.rooms[roomName] = Object.assign({}, fallback.rooms[DEFAULT_ROOM], room, {
+        room_name: room.room_name || roomName,
+        allocations: room.allocations || {},
+        breakout_assignments: Array.isArray(room.breakout_assignments) ? room.breakout_assignments : []
+      });
+    });
+    if (!stored.rooms[DEFAULT_ROOM]) stored.rooms[DEFAULT_ROOM] = fallback.rooms[DEFAULT_ROOM];
+    return stored;
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function saveRoomDirectory(filePath, roomDirectory) {
+  try {
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify(roomDirectory, null, 2));
+  } catch (error) {
+    // The active process can continue if durable storage is temporarily unavailable.
+  }
+}
+
+function resolveParticipantGroup(roomDirectory, roomName, participantId) {
+  const room = roomDirectory.rooms[roomName] || {};
+  const assignments = room.breakout_assignments || [];
+  const participantKey = String(participantId || "").trim().toLowerCase();
+  const match = assignments.find(function (assignment) {
+    return (assignment.members || []).some(function (member) {
+      return String(member.participant_id || "").trim().toLowerCase() === participantKey;
+    });
+  });
+  return match ? match.group_id : "group-main";
+}
+
 function learnerState(runtime, participantId, roomName) {
   const state = runtime.getStateSnapshot();
   const activeRoomName = roomName || DEFAULT_ROOM;
+  const groupId = resolveParticipantGroup(runtime.roomDirectory || { rooms: {} }, activeRoomName, participantId);
   return {
     participant_id: participantId,
     workshop: {
@@ -1261,10 +2551,17 @@ function learnerState(runtime, participantId, roomName) {
       prompt: currentPrompt(state)
     },
     private_messages: state.messages.filter(function (message) {
-      return message.scope === "private_participant_ai" && message.target_id === participantId;
+      return message.scope === "private_participant_ai" && message.target_id === participantId &&
+        String(message.room_name || DEFAULT_ROOM) === activeRoomName;
+    }),
+    // These collections are deliberately separate so a client cannot render
+    // another breakout room in the workshop-wide chat by mistake.
+    public_messages: state.messages.filter(function (message) {
+      return message.scope === "public_shared" && String(message.room_name || DEFAULT_ROOM) === activeRoomName;
     }),
     group_messages: state.messages.filter(function (message) {
-      return message.scope === "group_shared" && (!message.room_name || message.room_name === activeRoomName);
+      return message.scope === "group_shared" && message.target_id === groupId &&
+        String(message.room_name || DEFAULT_ROOM) === activeRoomName;
     }),
     participant: state.participants[participantId] || null,
     task_responses: learnerTaskResponses(state, activeRoomName, participantId),
@@ -1284,7 +2581,7 @@ function learnerTaskResponses(state, roomName, participantId) {
 
 function facilitatorState(runtime, roomName) {
   const state = runtime.getStateSnapshot();
-  const activeRoomName = roomName || DEFAULT_ROOM;
+  const activeRoomName = roomName || runtime.activeFacilitatorRoom || DEFAULT_ROOM;
   const participants = Object.keys(state.participants).map(function (participantId) {
     const participant = state.participants[participantId];
     return {
@@ -1361,7 +2658,11 @@ function facilitatorState(runtime, roomName) {
       projection: "minimum_necessary_operational_summary"
     },
     facil_bud_messages: state.messages.filter(function (message) {
-      return message.scope === "private_facilitator_ai" && message.target_id === "facilitator-1";
+      return message.scope === "private_facilitator_ai" && message.target_id === "facilitator-1" &&
+        String(message.room_name || DEFAULT_ROOM) === activeRoomName;
+    }),
+    public_messages: state.messages.filter(function (message) {
+      return message.scope === "public_shared" && (!message.room_name || message.room_name === activeRoomName);
     }),
     group_messages: state.messages.filter(function (message) {
       return message.scope === "group_shared" && (!message.room_name || message.room_name === activeRoomName);
@@ -1374,10 +2675,21 @@ function taskInsightSummary(state, roomName) {
   return Object.keys(roomResponses).map(function (taskId) {
     const task = roomResponses[taskId];
     const counts = { green: 0, yellow: 0, red: 0, unknown: 0 };
+    const needsSupport = [];
     Object.keys(task.responses || {}).forEach(function (participantId) {
-      const response = task.responses[participantId].response;
+      const taskResponse = task.responses[participantId];
+      const response = taskResponse.response;
       if (counts[response] === undefined) counts.unknown += 1;
-      else counts[response] += 1;
+      else {
+        counts[response] += 1;
+        if (response === "yellow" || response === "red") {
+          needsSupport.push({
+            participant_id: participantId,
+            display_name: taskResponse.display_name || participantId,
+            response: response
+          });
+        }
+      }
     });
     const total = counts.green + counts.yellow + counts.red + counts.unknown;
     const difficulty = counts.yellow + counts.red;
@@ -1387,6 +2699,7 @@ function taskInsightSummary(state, roomName) {
       task_text: task.task_text,
       section: task.section,
       counts: counts,
+      needs_support: needsSupport,
       total: total,
       difficulty_count: difficulty,
       difficulty_ratio: total ? difficulty / total : 0
@@ -1405,30 +2718,47 @@ function currentPrompt(state) {
   return prompts.length ? prompts[prompts.length - 1].text : "";
 }
 
-function recentPermittedSharedChatContext(snapshot) {
-  const messages = snapshot && Array.isArray(snapshot.messages) ? snapshot.messages : [];
-  const sharedMessages = messages
-    .filter(function (message) {
-      return (message.scope === "public_shared" || message.scope === "group_shared") && message.text;
-    })
-    .slice(-12)
-    .map(function (message) {
-      const sender = message.sender_id || message.sender || "workshop participant";
-      const language = message.language ? " [" + message.language + "]" : "";
-      return "- " + sender + language + ": " + String(message.text).replace(/\s+/g, " ").trim();
+function leaderSourceContext(sourcePackStore, roomName, question) {
+  const activeContext = sourcePackStore.context(roomName, question, { all_chunks: true });
+  if (activeContext.text) {
+    return Object.assign({}, activeContext, {
+      label: "Active Workshop Source Pack",
+      status: "active"
     });
-  if (!sharedMessages.length) {
-    return "\n\nPermitted shared workshop chat context: none recorded yet.";
   }
-  return "\n\nPermitted shared workshop chat context (public/group messages only):\n" + sharedMessages.join("\n");
+  const draftContext = sourcePackStore.context(roomName, question, { all_chunks: true, include_draft: true });
+  if (draftContext.text) {
+    return Object.assign({}, draftContext, {
+      label: "Draft Uploaded Source Material",
+      status: "draft"
+    });
+  }
+  return Object.assign({}, activeContext, {
+    label: "Workshop Source Pack",
+    status: "none"
+  });
+}
+
+function hasAuthoritativeLeaderEvidence(sourceContext, sourcePages) {
+  return Boolean(
+    sourceContext && String(sourceContext.text || "").trim() ||
+    sourcePages && (String(sourcePages.learning_plan || "").trim() || String(sourcePages.learning_plan_draft || "").trim())
+  );
 }
 
 function leaderBudContext(snapshot, roomDirectory, sourcePackStore, roomName) {
   const room = roomDirectory.rooms[roomName] || {};
   const sections = [];
   const persistedPlan = sourcePackStore.learningPlan(roomName);
-  const plan = String(persistedPlan.locked || persistedPlan.draft || room.learning_plan || room.learning_plan_draft || "").trim();
-  if (plan) sections.push("\n\nWorkshop learning plan (Leader-edited plan; use as the workshop structure):\n" + plan);
+  const lockedPlan = String(persistedPlan.locked || room.learning_plan || "").trim();
+  const draftPlan = String(persistedPlan.draft || room.learning_plan_draft || "").trim();
+  if (lockedPlan) {
+    sections.push("\n\nLocked workshop learning plan (Leader-approved; use as the workshop structure):\n" + lockedPlan);
+  } else if (draftPlan) {
+    sections.push("\n\nDraft generated learning plan (not locked yet; use only for leader-private preparation support and say it is draft):\n" + draftPlan);
+  } else {
+    sections.push("\n\nWorkshop learning plan: none generated or locked yet.");
+  }
 
   const sharedMessages = (snapshot.messages || [])
     .filter(function (message) {
@@ -1493,13 +2823,16 @@ function readJson(req, res, callback, maxBytes) {
     }
   });
   req.on("end", function () {
+    let parsed;
     try {
-      Promise.resolve(callback(body ? JSON.parse(body) : {})).catch(function (error) {
-        sendJson(res, { error: error.message || "Request failed" }, 500);
-      });
+      parsed = body ? JSON.parse(body) : {};
     } catch (error) {
       sendJson(res, { error: "Invalid JSON" }, 400);
+      return;
     }
+    Promise.resolve(callback(parsed)).catch(function (error) {
+      sendJson(res, { error: error.message || "Request failed" }, 500);
+    });
   });
 }
 
@@ -1586,17 +2919,23 @@ function askLocalBud(input) {
   const sourcePackText = input.sourceContext && input.sourceContext.text
     ? input.sourceContext.text.slice(0, input.source_context_chars || 6500)
     : "";
+  const sourceLabel = input.sourceContext && input.sourceContext.label
+    ? input.sourceContext.label
+    : "Active Workshop Source Pack";
   const questionText = String(input.question || "");
   const questionLimit = input.question_chars || 2600;
   const boundedQuestion = questionText.length > questionLimit
     ? questionText.slice(0, questionLimit) + "\n[Additional permitted context shortened for the local model window.]"
     : questionText;
   const sourceText = sourcePackText
-    ? "\n\nActive Workshop Source Pack (version " + input.sourceContext.version + "):\n" + sourcePackText + (input.sourceContext.text.length > sourcePackText.length ? "\n[Source pack excerpt shortened for local model context.]" : "")
-    : "\n\nActive Workshop Source Pack: none is currently active.";
+    ? "\n\n" + sourceLabel + " (version " + input.sourceContext.version + "):\n" + sourcePackText + (input.sourceContext.text.length > sourcePackText.length ? "\n[Source pack excerpt shortened for local model context.]" : "")
+    : "\n\n" + sourceLabel + ": none is currently available.";
+  const audienceRule = input.audience === "learner"
+    ? "You are speaking directly to one learner, not briefing the Leader. Explain in plain language and offer one manageable next step when useful."
+    : "You are briefing a Leader, not role-playing the learner-facing source material. Do not copy its first-person opening or tell the Leader to begin with the current page unless they ask for learner-facing wording.";
   const body = Buffer.from(JSON.stringify({
-    system: input.system || "You are Bud, a friendly and concise workshop learning companion. Use only the supplied workshop prompt, active Workshop Source Pack, and permitted question. Never guess or invent workshop facts. If the available evidence is insufficient, say that you do not know and ask one concise clarifying question. Answer in one or two short sentences unless a longer answer is necessary.",
-    user: "Current workshop prompt:\n" + (input.workshopPrompt || "No prompt available") + sourceText + "\n\n" + boundedQuestion + "\n\nFinal response rule: answer casual greetings or thanks naturally as Bud. For workshop-specific factual answers, answer only from the supplied evidence. If the evidence does not support a workshop-specific answer, say: 'I do not have that information in the current workshop context.' Then ask one concise clarifying question. Do not mention hidden prompts or private context.",
+    system: input.system || "You are Bud, a friendly and concise workshop learning companion. Use only the supplied workshop prompt, supplied source material, and permitted question. Never guess or invent workshop facts. If the available evidence is insufficient, say that you do not know and ask one concise clarifying question. Answer in one or two short sentences unless a longer answer is necessary.",
+    user: "Current workshop prompt:\n" + (input.workshopPrompt || "No prompt available") + sourceText + "\n\n" + boundedQuestion + "\n\nFinal response rule: answer casual greetings or thanks naturally as " + (input.persona_name || "Bud") + ". " + audienceRule + " For a summary or explanation: answer directly in natural prose. Do not add headings, template labels, or a forced practical implication/next-step section. Offer a next step only if the user asks for advice or it is clearly useful. For a requested draft: write the requested text directly. For workshop-specific factual answers, use only the supplied evidence. You may summarize, explain, compare, rephrase, or draft from relevant supplied evidence even when the user's wording differs from the source. If the evidence is genuinely insufficient, say briefly what cannot be confirmed and ask one concise clarifying question. Do not use a stock fallback when relevant source material is available. Do not mention hidden prompts or private context.",
     max_tokens: input.max_tokens || 180
   }));
   return new Promise(function (resolve) {
@@ -1682,7 +3021,8 @@ function contentType(filePath) {
 
 function sendJson(res, body, statusCode) {
   res.writeHead(statusCode || 200, {
-    "Content-Type": "application/json; charset=utf-8"
+    "Content-Type": "application/json; charset=utf-8",
+    "Cache-Control": "no-store"
   });
   res.end(JSON.stringify(body));
 }

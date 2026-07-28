@@ -12,12 +12,6 @@ const elements = {
   attachmentList: document.getElementById("attachment-list"),
   learningPlanTasks: document.getElementById("learning-plan-tasks"),
   messages: document.getElementById("messages"),
-  understanding: document.getElementById("understanding"),
-  participation: document.getElementById("participation"),
-  comprehension: document.getElementById("comprehension"),
-  helpButton: document.getElementById("help-button"),
-  dismissButton: document.getElementById("dismiss-button"),
-  observeButton: document.getElementById("observe-button"),
   connectionStatus: document.getElementById("connection-status"),
   roomInput: document.getElementById("room-input"),
   nameInput: document.getElementById("name-input"),
@@ -49,7 +43,6 @@ const elements = {
   budThinking: document.getElementById("bud-thinking")
 };
 
-let latestDismissedMessageId = "";
 let livekitRoom = null;
 let micAnalyserFrame = null;
 let speechRecorder = null;
@@ -58,7 +51,6 @@ let speechCaptureActive = false;
 let roomParticipants = {};
 let speechChunkSequence = 0;
 let latestRenderedSequence = 0;
-let periodicSummaryTimer = null;
 let silenceTimeout = null;
 let workshopPages = [];
 let learningPlanTasks = [];
@@ -106,22 +98,6 @@ function boot() {
   elements.documentNext.addEventListener("click", function () { changeDocumentPage(1); });
   elements.documentTaskDone.addEventListener("click", completeCurrentTask);
   if (elements.clearCaptions) elements.clearCaptions.addEventListener("click", clearCaptions);
-  elements.helpButton.addEventListener("click", function () {
-    postJson("/api/help-stuck", { participant_id: PARTICIPANT_ID });
-  });
-
-  elements.observeButton.addEventListener("click", function () {
-    postJson("/api/observe", { participant_id: PARTICIPANT_ID });
-  });
-
-  elements.dismissButton.addEventListener("click", function () {
-    const latest = currentMessages()[currentMessages().length - 1];
-    if (latest) {
-      latestDismissedMessageId = latest.message_id;
-      renderMessages(currentMessages());
-    }
-  });
-
   elements.form.addEventListener("submit", function (event) {
     event.preventDefault();
     const text = elements.input.value.trim();
@@ -132,6 +108,7 @@ function boot() {
     postJson("/api/private-message", {
       participant_id: PARTICIPANT_ID,
       room_name: elements.roomInput.value.trim(),
+      display_name: elements.nameInput.value.trim() || PARTICIPANT_ID,
       native_language: elements.nativeLanguageInput.value,
       text: text
     });
@@ -157,14 +134,14 @@ function boot() {
   getState();
   window.setInterval(getState, 3000);
   window.setInterval(refreshWorkshopMaterial, 5000);
-  periodicSummaryTimer = window.setInterval(requestPeriodicSummary, 90000);
   updateBudName();
   applyLearnerBackground();
   applyBudAvatar();
   refreshWorkshopMaterial();
-  if (window.BudTalk) {
+  const sharedTalkButton = document.querySelector("#shared-talk");
+  if (window.BudTalk && sharedTalkButton) {
     window.BudTalk({
-      button: document.querySelector("#shared-talk"),
+      button: sharedTalkButton,
       status: document.querySelector("#shared-talk-status"),
       participantId: PARTICIPANT_ID,
       getRoomName: function () { return elements.roomInput.value.trim() || "BUD-101"; },
@@ -406,7 +383,7 @@ function renderLearningPlanTasks() {
       button.type = "button";
       button.className = "comprehension-button " + option.className + (taskResponses[taskId] === option.response ? " is-selected" : "");
       button.dataset.response = option.response;
-      button.title = option.label + " - update Room Insights";
+      button.title = option.label;
       button.setAttribute("aria-label", option.label + " for task " + (index + 1));
       const icon = document.createElement("span");
       icon.setAttribute("aria-hidden", "true");
@@ -426,7 +403,6 @@ function taskResponseId(index) {
 
 function submitTaskComprehension(task, index, response) {
   const taskId = taskResponseId(index);
-  const insightsWindow = window.open("/leader?room=" + encodeURIComponent(elements.roomInput.value.trim() || "BUD-101") + "#insights", "_blank", "noopener");
   taskResponses[taskId] = response;
   renderLearningPlanTasks();
   fetch("/api/task-comprehension-response", {
@@ -446,7 +422,6 @@ function submitTaskComprehension(task, index, response) {
     return responseObject.json();
   }).then(function (payload) {
     if (payload.state) renderState(payload.state);
-    if (insightsWindow) insightsWindow.focus();
   }).catch(showOffline);
 }
 
@@ -534,7 +509,6 @@ function connectWorkshop() {
         roomParticipants[identity] = participant.name || identity;
       });
       renderPresence();
-      requestPeriodicSummary();
     })
     .catch(function (error) {
       setConnectionStatus(error.message);
@@ -944,13 +918,8 @@ function renderState(state) {
   if (elements.promptText) elements.promptText.textContent = "Complete the Tasks specified in the document with Bud AI.";
   renderWorkshopTimer(state.workshop_control);
 
-  const understanding = state.participant && state.participant.understanding;
-  const participation = state.participant && state.participant.participation;
-  elements.understanding.textContent = understanding ? understanding.status : "unknown";
-  elements.participation.textContent = participation ? participation.status : "present";
-  elements.comprehension.textContent = state.participant && state.participant.comprehension ? state.participant.comprehension.status : "unknown";
   renderMessages(state.private_messages);
-  renderSharedMessages(state.group_messages);
+  renderSharedMessages(state.public_messages || []);
   const privateMessages = state.private_messages || [];
   const latestPrivateMessage = privateMessages[privateMessages.length - 1];
   if (elements.budThinking) {
@@ -1035,9 +1004,7 @@ function renderPresence() {
 
 function renderMessages(messages) {
   elements.messages.innerHTML = "";
-  const visibleMessages = messages.filter(function (message) {
-    return message.message_id !== latestDismissedMessageId;
-  });
+  const visibleMessages = messages;
 
   if (!visibleMessages.length && !window.learnerBudGreeting) {
     const empty = document.createElement("div");
@@ -1088,8 +1055,6 @@ function setBudThinking(isThinking) {
 }
 
 function setBusy(isBusy) {
-  elements.helpButton.disabled = isBusy;
-  elements.observeButton.disabled = isBusy;
   document.querySelectorAll(".comprehension-button").forEach(function (button) { button.disabled = isBusy; });
   elements.form.querySelector("button").disabled = isBusy;
   setBudThinking(isBusy);

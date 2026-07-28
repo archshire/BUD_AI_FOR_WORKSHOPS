@@ -1,18 +1,15 @@
 (function () {
   const tabs = Array.prototype.slice.call(document.querySelectorAll("[data-learner-tab]"));
   const breakoutView = document.querySelector("#breakout-view");
-  const dmView = document.querySelector("#dm-view");
   const promptBand = document.querySelector(".prompt-band");
   const roomControls = document.querySelector(".room-controls");
   const roomFeed = document.querySelector("#room-feed");
-  const workshopSections = Array.prototype.slice.call(document.querySelectorAll(".document-workspace, .learning-plan-panel, .breakout-view, .activity"));
+  const workshopSections = Array.prototype.slice.call(document.querySelectorAll(".document-workspace, .learning-plan-panel, .activity, .shared-room"));
   const messages = document.querySelector("#breakout-messages");
   const members = document.querySelector("#breakout-members");
   const roomStatus = document.querySelector("#breakout-room-status");
   const chatForm = document.querySelector("#breakout-chat-form");
   const chatInput = document.querySelector("#breakout-chat-input");
-  const pttButton = document.querySelector("#breakout-ptt");
-  const pttStatus = document.querySelector("#breakout-ptt-status");
   const activation = document.querySelector("#learner-activation");
   const activateButton = document.querySelector("#activate-learner-bud");
   const setupNativeLanguage = document.querySelector("#setup-native-language");
@@ -32,10 +29,13 @@
   const mainMicrophoneButton = document.querySelector("#microphone-button");
   const budPanel = document.querySelector("#learner-bud-panel");
   const query = new URLSearchParams(window.location.search);
-  const participantId = query.get("participant_id") || "learner-1";
+  const participantStorageKey = "bud-learner-participant-id";
+  const participantId = query.get("participant_id") || window.sessionStorage.getItem(participantStorageKey) ||
+    "learner-" + Math.random().toString(36).slice(2, 10);
+  if (!query.get("participant_id")) window.sessionStorage.setItem(participantStorageKey, participantId);
   const displayName = query.get("name") || "Learner";
-  let pttActive = false;
   let breakoutGroupId = "group-main";
+  let breakoutMemberNames = {};
   const activationKey = "bud-learner-activated-" + participantId;
   let setupMicReady = false;
   let setupDocsReady = false;
@@ -43,6 +43,23 @@
   const runtimeNameInput = document.querySelector("#name-input");
   if (runtimeRoomInput) runtimeRoomInput.value = query.get("room") || "BUD-101";
   if (runtimeNameInput) runtimeNameInput.value = displayName;
+
+  function reportLearnerPresence(connected, microphoneActive) {
+    const roomName = new URLSearchParams(window.location.search).get("room") || "BUD-101";
+    fetch("/api/topview/presence", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        connected: connected,
+        participant_id: participantId,
+        display_name: displayName,
+        role: "learner",
+        room_name: roomName,
+        language: (document.querySelector("#native-language-input") || setupNativeLanguage || {}).value || "en",
+        microphone_active: Boolean(microphoneActive)
+      })
+    }).catch(function () {});
+  }
 
   function updateSetupGate() {
     const privacyReady = Boolean(setupPrivacy && setupPrivacy.checked);
@@ -145,13 +162,14 @@
   }
 
   function showTab(tab) {
+    if (tab === "dm") tab = "breakout";
     if (tab === "bud" && window.sessionStorage.getItem(activationKey) !== "1") tab = "setup";
     tabs.forEach(function (item) {
       const active = item.dataset.learnerTab === tab;
       item.classList.toggle("is-active", active);
       item.setAttribute("aria-selected", String(active));
     });
-    const allPages = [activation, promptBand, roomControls].concat(workshopSections, [roomFeed, breakoutView, dmView]).filter(Boolean);
+    const allPages = [activation, promptBand, roomControls].concat(workshopSections, [roomFeed, breakoutView]).filter(Boolean);
     allPages.forEach(function (section) { section.hidden = true; });
     if (tab === "setup") {
       if (activation) activation.hidden = window.sessionStorage.getItem(activationKey) === "1";
@@ -162,9 +180,11 @@
       workshopSections.forEach(function (section) { section.hidden = false; });
       if (roomFeed) roomFeed.hidden = false;
     }
-    if (tab === "dm" && dmView) dmView.hidden = false;
+    if (tab === "breakout" && breakoutView) {
+      breakoutView.hidden = false;
+      refreshBreakout();
+    }
     if (tab === "bud") document.querySelector(".bud-panel").scrollIntoView({ behavior: "smooth", block: "start" });
-    if (tab === "workshop") refreshBreakout();
   }
 
   tabs.forEach(function (tab) {
@@ -186,7 +206,9 @@
       const card = document.createElement("article");
       card.className = "breakout-message";
       const sender = document.createElement("strong");
-      sender.textContent = item.sender_id === participantId ? "You" : (item.sender_id || "Room participant");
+      sender.textContent = item.sender_id === participantId
+        ? "You"
+        : (item.sender_display_name || breakoutMemberNames[item.sender_id] || item.sender_id || "Room participant");
       const text = document.createElement("p");
       text.textContent = item.text;
       card.append(sender, text);
@@ -217,12 +239,17 @@
       });
       if (!allocation) {
         breakoutGroupId = "group-main";
+        breakoutMemberNames = {};
         roomStatus.textContent = "Room not assigned";
         members.innerHTML = '<li class="empty">The Leader has not assigned you to a breakout room yet.</li>';
       } else {
         breakoutGroupId = allocation.group_id;
         roomStatus.textContent = allocation.room_name;
         const roomMembers = allocation.allocations || [];
+        breakoutMemberNames = roomMembers.reduce(function (names, item) {
+          if (item.participant_id) names[item.participant_id] = item.display_name || item.participant_id;
+          return names;
+        }, {});
         members.innerHTML = roomMembers.map(function (item) {
           return "<li>" + escapeHtml(item.display_name || item.participant_id) + "</li>";
         }).join("");
@@ -247,25 +274,14 @@
     if (!text) return;
     chatInput.value = "";
     const roomName = new URLSearchParams(window.location.search).get("room") || "BUD-101";
-    fetch("/api/group-message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ room_name: roomName, participant_id: participantId, group_id: breakoutGroupId, text, language: document.querySelector("#native-language-input").value }) }).then(refreshBreakout);
+    fetch("/api/group-message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ room_name: roomName, participant_id: participantId, sender_display_name: displayName, group_id: breakoutGroupId, text, language: document.querySelector("#native-language-input").value }) }).then(refreshBreakout);
   });
-
-  function setPtt(active) {
-    if (pttActive === active) return;
-    pttActive = active;
-    pttButton.classList.toggle("is-speaking", active);
-    pttButton.textContent = active ? "Release to stop" : "Hold to talk";
-    pttStatus.textContent = active ? displayName + " is using push-to-talk. This status is visible in the room chat." : "Push-to-talk is off.";
-    const roomName = new URLSearchParams(window.location.search).get("room") || "BUD-101";
-    fetch("/api/group-message", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ room_name: roomName, participant_id: participantId, group_id: breakoutGroupId, text: "[PTT] " + displayName + (active ? " is using push-to-talk." : " stopped using push-to-talk."), language: "en" }) }).then(refreshBreakout);
-  }
-  if (pttButton) {
-    pttButton.addEventListener("pointerdown", function () { setPtt(true); });
-    pttButton.addEventListener("pointerup", function () { setPtt(false); });
-    pttButton.addEventListener("pointerleave", function () { setPtt(false); });
-    pttButton.addEventListener("keydown", function (event) { if (event.key === " ") { event.preventDefault(); setPtt(true); } });
-    pttButton.addEventListener("keyup", function (event) { if (event.key === " ") { event.preventDefault(); setPtt(false); } });
-  }
+  if (chatInput && chatForm) chatInput.addEventListener("keydown", function (event) {
+    if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+    event.preventDefault();
+    if (typeof chatForm.requestSubmit === "function") chatForm.requestSubmit();
+    else chatForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
   if (window.BudTalk && breakoutView) {
     window.BudTalk({
       button: document.querySelector("#breakout-talk"),
@@ -273,6 +289,7 @@
       participantId: participantId,
       getRoomName: function () { return new URLSearchParams(window.location.search).get("room") || "BUD-101"; },
       getGroupId: function () { return breakoutGroupId; },
+      getDisplayName: function () { return displayName; },
       getNativeLanguage: function () { return (document.querySelector("#native-language-input") || {}).value || "en"; },
       getTargetLanguage: function () { return (document.querySelector("#language-input") || {}).value || "en"; },
       onPosted: refreshBreakout
@@ -293,4 +310,7 @@
   if (breakoutView) window.setInterval(refreshBreakout, 3000);
   updateNavigationLock();
   showTab(query.get("tab") || (activated ? "workshop" : "setup"));
+  reportLearnerPresence(true, false);
+  window.setInterval(function () { reportLearnerPresence(true, false); }, 10000);
+  window.addEventListener("beforeunload", function () { reportLearnerPresence(false, false); });
 }());

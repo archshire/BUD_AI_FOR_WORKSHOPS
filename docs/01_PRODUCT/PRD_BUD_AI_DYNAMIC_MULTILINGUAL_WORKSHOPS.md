@@ -167,7 +167,7 @@ permission, infer comprehension from silence, or make consequential workshop
 decisions for the facilitator.
 
 The partner thesis is demonstrated through private context-grounded support,
-periodic learner summaries, optional adaptive check-ins, participant-reported
+signal-driven learner support after explicit task check-ins, participant-reported
 green/yellow/red comprehension signals, multilingual meaning repair,
 privacy-aware facilitator reports, correction handling, and explicit WAIT or
 NO_ACTION behavior when evidence is insufficient.
@@ -200,6 +200,44 @@ persona may use a generic model answer to fill a missing workshop context.
 
 This boundary is implemented through dedicated behavior contracts for the
 two personas, while Qwen remains replaceable behind the provider abstraction.
+
+### Current prototype response policy and evaluator evidence
+
+The prototype does not permit a direct, ungrounded Qwen answer for a
+workshop-specific question. The application classifies and routes the request
+before the local model is called:
+
+1. Direct ground-truth routes answer identity, attendance, active lesson,
+   assigned breakout membership, explicit task check-ins, room status, and
+   permitted shared-chat questions from application-owned sources.
+2. A Leader room-status route reads the same task-insight records presented in
+   Room Insights plus permitted Live Chat and breakout messages. It reports
+   only explicit check-ins, public support signals, and shared discussion; it
+   preserves `unknown` for learners without evidence.
+3. Room Insights may show the names of learners who explicitly marked a task
+   yellow or red, with the task and self-reported status. It must not name or
+   label quiet learners as needing help.
+4. When model reasoning is appropriate, the application supplies the selected
+   persona contract, authoritative Source Pack/locked-plan excerpts where
+   relevant, the smallest permitted memory-ledger retrieval, and a
+   privacy-scoped context bundle. Qwen cannot choose its own scope.
+5. Learner Bud receives only its learner-private memory, public workshop
+   context, and its assigned breakout context. Leader Bud receives leader
+   private memory, attendance, source/plan material, room insights, and
+   permitted Live/Breakout chat. Neither receives another learner's private
+   Bud conversation.
+6. Unsupported personal questions are bounded by the requesting Bud's own
+   private memory. If a person or fact was not introduced, Bud says so without
+   guessing and gently returns to workshop support.
+7. The application applies response guards before display: unsupported
+   workshop claims fall back to an evidence-bound answer, and internal prompt
+   labels or template headings are not shown to users.
+
+**Evaluator check:** ask Leader Bud for the room state, then ask a pronoun
+follow-up such as “how are they doing?”. It must retain the room-status intent,
+summarize explicit task and permitted chat evidence, identify explicitly
+self-reported support needs where available, and state what remains unknown.
+Ask either Bud an unknown personal-fact question; it must not invent an answer.
 
 ------------------------------------------------------------------------
 
@@ -953,25 +991,25 @@ evidence or increased consequence.
 
 For a defined comprehension-check interval and named recap point, Bud may produce a facilitator-visible aggregate rollup of participant-reported `green`, `yellow`, `red`, and `unknown` responses. The rollup must state the response denominator and may identify the recap point with the most yellow/red responses only when the check-in explicitly identifies that point.
 
-The rollup is a privacy-safe pattern signal, not a diagnosis of why participants responded as they did. It excludes raw private follow-up content and suppresses or generalizes detail where a small cohort could identify an individual.
+The rollup is a privacy-safe pattern signal, not a diagnosis of why participants responded as they did. It excludes raw private follow-up content. In the Leader's private Room Insights view, a learner who explicitly marks a task yellow or red may be named beside that task with their self-reported status, so the Leader can offer support; non-responders remain unknown and are never named as needing help.
 
 **Acceptance:** A facilitator can see an aggregate such as `6 of 10 responded: 4 green, 1 yellow, 1 red, 4 unknown`, plus a qualified recap-point pattern where privacy thresholds permit. Unknown is never treated as understanding or confusion.
 
-## FR-ME-011 --- Periodic learner progress summary
+## FR-ME-011 --- Signal-driven learner support
 
-At meaningful workshop entry or activity intervals, Bud may send the learner a
-brief private progress summary grounded in the current workshop prompt and
-recent permitted shared context. The summary states the current focus, offers
-one concrete next step, and invites the learner to report green, yellow, or
-red if they want to calibrate their understanding. It must not expose another
-learner's private content, claim that silence proves understanding, or interrupt
-the learner more often than the bounded cooldown.
+Bud must not send mechanical interval-based private summaries in the current
+prototype. When a learner explicitly marks a task yellow or red, Learner Bud
+records an open private support signal and may offer one concise clarification
+or smaller next step. When that learner later marks the same task green, the
+signal is recorded as resolved. This support remains private and must not
+expose another learner's content, infer a state from silence, or become a
+diagnosis.
 
-**Acceptance:** After joining, a learner receives at most one private summary
-within the first 90 seconds and no more than one summary per 90-second window.
-The message is labelled as a check-in summary and remains in the learner's
-private Bud thread. If the local reasoning provider is unavailable, the system
-shows a bounded fallback summary rather than failing the workshop.
+**Acceptance:** A yellow/red task response produces at most one contextual
+private support offer for that change. A later green response resolves the
+support signal without creating another intrusive Bud message. The Leader can
+see the learner's explicit yellow/red task status in private Room Insights, but
+not the learner's private Bud conversation.
 
 ## FR-ROOM-009 --- Automatic facilitator room report
 

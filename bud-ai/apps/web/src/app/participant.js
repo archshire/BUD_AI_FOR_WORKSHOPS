@@ -51,7 +51,7 @@ accessForm.addEventListener("submit", (event) => {
 
   accessStatus.textContent = "Checking workshop readiness...";
   const participantId = (guest ? "guest-" : "learner-") + name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) + "-" + Math.random().toString(36).slice(2, 8);
-  fetch("/api/facilitator/rooms")
+  fetch("/api/facilitator/rooms", { cache: "no-store" })
     .then((response) => response.ok ? response.json() : Promise.reject(new Error("Room service unavailable")))
     .then((payload) => {
       const matchingRoom = (payload.rooms || []).find((candidate) => candidate.room_name.toLowerCase() === roomName.toLowerCase());

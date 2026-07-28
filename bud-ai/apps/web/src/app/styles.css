@@ -632,11 +632,11 @@ h2 {
 .breakout-message { padding: 10px 12px; border-left: 3px solid var(--blue); background: #eef4fb; }
 .breakout-message p { margin: 4px 0 0; }
 .breakout-chat-form { display: grid; gap: 8px; }
-.breakout-chat-form textarea { width: 100%; resize: vertical; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
-.ptt-button { min-height: 44px; border: 2px solid var(--blue); border-radius: 8px; background: white; color: var(--blue-dark); font-weight: 800; }
-.ptt-button.is-speaking { background: #f16d5b; border-color: #b43d31; color: white; }
-.ptt-status { margin: 0; color: var(--muted); font-size: 13px; }
-.talk-button { min-height: 44px; border: 2px solid var(--blue); border-radius: 8px; background: white; color: var(--blue-dark); font-weight: 800; }
+.breakout-chat-form textarea { width: 100%; min-height: 132px; resize: vertical; border: 1px solid var(--line); border-radius: 8px; padding: 10px; }
+.breakout-chat-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.breakout-chat-actions .primary-action, .breakout-chat-actions .talk-button { width: 100%; }
+.talk-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; border: 2px solid var(--blue); border-radius: 8px; background: white; color: var(--blue-dark); font-weight: 800; }
+.talk-button-icon { font-size: 1.05rem; line-height: 1; }
 .talk-button.is-talking { background: #d64545; border-color: #a92d2d; color: white; }
 .talk-status { margin: 0; color: var(--muted); font-size: 13px; }
 .dm-view { display: grid; gap: 16px; padding: 22px; border: 1px solid var(--line); border-radius: 8px; background: var(--paper); color: var(--ink); }

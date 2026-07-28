@@ -9,6 +9,9 @@ function createBudRuntime(options) {
 
   function handleEvent(event) {
     validateNormalizedEvent(event);
+    if (event.actor && event.actor.actor_type === "participant" && event.actor.participant_id) {
+      state.ensureParticipant(event.actor.participant_id);
+    }
     state.recordEvent(event);
 
     const decision = decide({
@@ -48,6 +51,14 @@ function createBudRuntime(options) {
     state.addFacilitatorSignal(signal);
   }
 
+  function ensureParticipant(participantId) {
+    state.ensureParticipant(participantId);
+  }
+
+  function clearRoomConversation(roomName) {
+    state.clearRoomConversation(roomName);
+  }
+
   return {
     handleEvent,
     observeParticipation,
@@ -55,6 +66,8 @@ function createBudRuntime(options) {
     recordPrivateMessage,
     recordTaskResponse,
     recordFacilitatorSignal,
+    ensureParticipant,
+    clearRoomConversation,
     getStateSnapshot: state.getSnapshot
   };
 }

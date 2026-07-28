@@ -14,7 +14,7 @@
     }
 
     function setButtonState() {
-      button.textContent = active ? "Stop talking" : "Talk";
+      button.innerHTML = '<span class="talk-button-icon" aria-hidden="true">&#127908;</span><span>' + (active ? "Stop talking" : "Talk") + "</span>";
       button.classList.toggle("is-talking", active);
       button.setAttribute("aria-pressed", String(active));
     }
@@ -62,6 +62,7 @@
           body: JSON.stringify({
             room_name: options.getRoomName(),
             participant_id: participantId,
+            sender_display_name: options.getDisplayName ? options.getDisplayName() : participantId,
             group_id: options.getGroupId ? options.getGroupId() : "group-main",
             text: text,
             language: nativeLanguage

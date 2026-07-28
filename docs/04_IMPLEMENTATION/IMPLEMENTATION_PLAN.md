@@ -40,12 +40,26 @@ evidence are available to the Leader Bud prompt. Private learner-Bud content
 remains excluded. Shared messages carry room and group identity so breakout
 context can remain scoped as room-management features expand.
 
-During the prototype, permitted private Bud conversations and normalized
-workshop state are persisted to the mounted local data volume. Each Bud keeps
-its persona and privacy boundary while using this growing, partner-specific
-memory on subsequent replies. A room-scoped Markdown memory file provides a
-quick, inspectable retrieval slice; it is an optimization and convenience
-layer, not a second source of truth.
+During the prototype, permitted private Bud conversations, normalized workshop
+state, and selected compacted event summaries are persisted to the mounted local
+data volume. Each room initializes a structured Markdown contextual memory
+ledger from the first interaction. The ledger starts with generic categories for
+Ground Context, People Index, Shared Workshop Chat, Breakout Context, Leader Bud
+Memory, Learner Bud Memory, Open Questions / Unknowns, and Exclusions / Privacy
+Boundaries. It is an inspectable retrieval layer, not a second source of truth.
+
+Qwen may compact an event and suggest the ledger bucket or a new category, but
+application code owns the write. The server validates room, participant/group
+identity, source event references, privacy scope, staleness/version markers, and
+`usable_by` retrieval scope before appending to the ledger. Future Bud prompts
+retrieve relevant buckets rather than replaying every runtime fragment or
+depending on one-off route rules.
+
+The Bud response path follows a fixed cognition loop: load/init the ledger,
+retrieve the smallest relevant permitted slice, build the response from current
+runtime state and authoritative source/plan data before memory, use grounded
+fallbacks when evidence is absent, then compact and log the interaction into
+the matching scoped ledger bucket.
 
 Breakout assignments are now saved to the server's room state. Learners resolve
 their assigned `breakout-room-N` group and send chat/PTT events with that group
@@ -164,6 +178,10 @@ The platform-independent event boundary preserves the option to add Zoom or anot
 - Receive and route LiveKit room, participant, voice, text, and reconnect events.
 - Run provider adapters for STT, translation, and LLM.
 - Own authoritative state.
+- Maintain the structured contextual memory ledger as an auditable retrieval
+  layer over normalized events and state.
+- Run the retrieve -> reason -> answer -> compact/log loop for Bud
+  interactions.
 - Validate AI decisions and tool calls.
 - Emit normalized updates back to clients.
 
