@@ -154,7 +154,14 @@ function testWorkshopAudioAndCaptionWiring() {
   assert.equal(leader.indexOf("rooms: !planLocked") !== -1, true);
   assert.equal(leader.indexOf('"launch-bud": !roomPrepared') !== -1, true);
   assert.equal(leader.indexOf('"source-pack": !leaderBudLaunched') !== -1, true);
-  assert.equal(leader.indexOf("insights: !workshopComplete") !== -1, true);
+  assert.equal(leader.indexOf("insights: !leaderHasTaskResponses") !== -1, true);
+  assert.equal(leader.indexOf("const hasTaskResponses = taskInsights.some") !== -1, true);
+  const liveLearningPointsRenderer = leader.slice(
+    leader.indexOf("function renderLeaderLearningPlanTasks"),
+    leader.indexOf("function changeLeaderDocumentPage")
+  );
+  assert.equal(liveLearningPointsRenderer.indexOf('checkbox.type = "checkbox"') === -1, true);
+  assert.equal(liveLearningPointsRenderer.indexOf("/api/facilitator/learning-plan-task") === -1, true);
   assert.equal(leaderHtml.indexOf('id="room-caption-list"') !== -1, true);
   assert.equal(leaderHtml.indexOf('id="room-talk"') !== -1, true);
   assert.equal(leader.indexOf("localParticipant.setMicrophoneEnabled(true)") !== -1, true);

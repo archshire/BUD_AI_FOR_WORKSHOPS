@@ -73,6 +73,7 @@ let planGenerationComplete = false;
 let planLockComplete = false;
 let roomPrepared = false;
 let leaderBudLaunched = false;
+let leaderHasTaskResponses = false;
 let liveGuestParticipants = [];
 let roomCaptionFeed = null;
 let breakoutCaptionFeeds = {};
@@ -93,7 +94,6 @@ let leaderLearningPlan = "";
 let leaderLearningPlanTasks = [];
 let workshopPlanCards = [];
 let leaderActiveTaskIndex = 0;
-let leaderCompletedTaskIndexes = [];
 let expandedLeaderTasks = {};
 const demoRegisteredParticipants = [
   { name: "Aisha Rahman", email: "aisha.rahman@example.com", present: true },
@@ -195,10 +195,6 @@ function updateSetupSequence() {
   const hasGeneratedPlan = planGenerationComplete && Boolean(learningPlanOutput.value.trim());
   const planLocked = planLockComplete && Boolean(learningPlanOutput.readOnly && learningPlanOutput.value.trim());
   const budReady = roomPrepared;
-  const workshopComplete = leaderLearningPlanTasks.length > 0 &&
-    leaderLearningPlanTasks.every(function (_, index) {
-      return leaderCompletedTaskIndexes.indexOf(index) !== -1;
-    });
   budConfigBox.classList.toggle("is-locked", !budReady);
   budConfigBox.setAttribute("aria-disabled", String(!budReady));
   leaderNativeLanguage.disabled = !budReady;
@@ -218,7 +214,7 @@ function updateSetupSequence() {
       rooms: !planLocked,
       "launch-bud": !roomPrepared,
       "source-pack": !leaderBudLaunched,
-      insights: !workshopComplete
+      insights: !leaderHasTaskResponses
     }[target];
     tab.classList.toggle("is-locked", locked);
     tab.setAttribute("aria-disabled", String(locked));
@@ -664,7 +660,6 @@ function refreshLeaderWorkshopMaterial() {
     }
     leaderLearningPlanTasks = parseLeaderLearningPlanTasks(leaderLearningPlan);
     leaderActiveTaskIndex = control.active_task_index === null ? -1 : Number(control.active_task_index) || 0;
-    leaderCompletedTaskIndexes = Array.isArray(control.completed_task_indexes) ? control.completed_task_indexes : [];
     leaderWorkshopPages = material.pages && material.pages.length ? material.pages : [{
       filename: "Workshop documents",
       location: "Current activity",
@@ -706,10 +701,7 @@ function parseLeaderLearningPlanTasks(plan) {
 
 function renderLeaderLearningPlanTasks() {
   leaderLivePlanTasks.innerHTML = "";
-  const completedCount = leaderCompletedTaskIndexes.filter(function (index) {
-    return index >= 0 && index < leaderLearningPlanTasks.length;
-  }).length;
-  leaderLivePlanProgress.textContent = completedCount + " / " + leaderLearningPlanTasks.length;
+  leaderLivePlanProgress.textContent = leaderLearningPlanTasks.length + " points";
   if (!leaderLearningPlanTasks.length) {
     const empty = document.createElement("p");
     empty.className = "empty";
@@ -718,20 +710,12 @@ function renderLeaderLearningPlanTasks() {
     return;
   }
   leaderLearningPlanTasks.forEach(function (task, index) {
-    const isComplete = leaderCompletedTaskIndexes.indexOf(index) !== -1;
     const isCurrent = index === leaderActiveTaskIndex;
     const isExpanded = Boolean(expandedLeaderTasks[index]);
     const card = document.createElement("article");
-    card.className = "leader-learning-point" + (isCurrent ? " is-current" : "") + (isComplete ? " is-complete" : "");
+    card.className = "leader-learning-point" + (isCurrent ? " is-current" : "");
     const heading = document.createElement("div");
     heading.className = "leader-learning-point-heading";
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = isComplete;
-    checkbox.setAttribute("aria-label", "Mark learning point " + (index + 1) + " complete");
-    checkbox.addEventListener("change", function () {
-      updateLeaderLearningPlanTask(index, checkbox.checked);
-    });
     const toggle = document.createElement("button");
     toggle.type = "button";
     toggle.className = "leader-learning-point-toggle";
@@ -750,7 +734,7 @@ function renderLeaderLearningPlanTasks() {
       expandedLeaderTasks[index] = !expandedLeaderTasks[index];
       renderLeaderLearningPlanTasks();
     });
-    heading.append(checkbox, toggle);
+    heading.appendChild(toggle);
     const details = document.createElement("p");
     details.className = "leader-learning-point-details";
     details.textContent = task.text + (task.comprehensionCheck ? "\nCheck: " + task.comprehensionCheck : "");
@@ -758,28 +742,6 @@ function renderLeaderLearningPlanTasks() {
     card.append(heading, details);
     leaderLivePlanTasks.appendChild(card);
   });
-}
-
-function updateLeaderLearningPlanTask(taskIndex, completed) {
-  fetch("/api/facilitator/learning-plan-task", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      room_name: roomNameInput.value.trim() || "BUD-101",
-      task_index: taskIndex,
-      task_count: leaderLearningPlanTasks.length,
-      completed: completed,
-      updated_by: "facilitator-1"
-    })
-  }).then(function (response) {
-    if (!response.ok) throw new Error("Unable to update the learning point");
-    return response.json();
-  }).then(function (control) {
-    leaderActiveTaskIndex = control.active_task_index === null ? -1 : control.active_task_index;
-    leaderCompletedTaskIndexes = control.completed_task_indexes || [];
-    renderLeaderLearningPlanTasks();
-    updateSetupSequence();
-  }).catch(refreshLeaderWorkshopMaterial);
 }
 
 function changeLeaderDocumentPage(delta) {
@@ -1033,7 +995,13 @@ function refreshLeaderState() {
   fetch("/api/facilitator/state?room=" + encodeURIComponent(roomNameInput.value.trim() || "BUD-101"))
     .then(function (response) { return response.ok ? response.json() : Promise.reject(new Error("State unavailable")); })
     .then(function (state) {
-      renderTaskInsights(state.task_insights || [], (state.participants || []).length);
+      const taskInsights = state.task_insights || [];
+      const hasTaskResponses = taskInsights.some(function (task) { return Number(task.total) > 0; });
+      renderTaskInsights(taskInsights, (state.participants || []).length);
+      if (leaderHasTaskResponses !== hasTaskResponses) {
+        leaderHasTaskResponses = hasTaskResponses;
+        updateSetupSequence();
+      }
       refreshLeaderRoomChat();
     })
     .catch(function () {});
