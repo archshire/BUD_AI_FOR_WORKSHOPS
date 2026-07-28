@@ -205,7 +205,8 @@ function testWorkshopAudioAndCaptionWiring() {
   assert.equal(generationHandler.indexOf("planTab.click()") === -1, true);
   assert.equal(leader.indexOf('let pendingField = ""') !== -1, true);
   assert.equal(leader.indexOf('target[pendingField] += (target[pendingField] ? "\\n" : "") + value') !== -1, true);
-  assert.equal(serverSource.indexOf("Create 3 to 5 numbered chapters") !== -1, true);
+  assert.equal(serverSource.indexOf("Create exactly 4 numbered chapters") !== -1, true);
+  assert.equal(serverSource.indexOf("Create exactly 4 practical learner-centred chapters") !== -1, true);
   assert.equal(serverSource.indexOf("structured_output: true") !== -1, true);
   assert.equal(serverSource.indexOf("Follow the requested output structure exactly") !== -1, true);
   const parserSource = leader.slice(
