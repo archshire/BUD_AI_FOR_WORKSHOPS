@@ -1357,7 +1357,7 @@ function createServer(options) {
           question_chars: 1600,
           max_tokens: Math.min(LEARNER_BUD_BEHAVIOR.max_tokens, 140),
           persona_name: "Learner Bud",
-          timeout_ms: 90000,
+          timeout_ms: 180000,
           system: directSourceAnswer
             ? learnerSourceAnswerSystem(nativeLanguage)
             : LEARNER_BUD_BEHAVIOR.system + " You are speaking privately with one learner. Stay in Learner Bud voice. Before answering, identify the supplied source, task state, or permitted learner context that supports the answer. If none supports a workshop-specific answer, say what cannot be confirmed instead of guessing. Never start with a generic greeting unless the learner greeted you. Write the final answer in English; the application will translate it into the learner's selected native language.",
@@ -1863,7 +1863,7 @@ function createServer(options) {
           question_chars: 1800,
           max_tokens: LEADER_BUD_BEHAVIOR.max_tokens,
           persona_name: "Leader Bud",
-          timeout_ms: 90000,
+          timeout_ms: 180000,
           system: directSourceAnswer
             ? leaderSourceAnswerSystem(leaderName, sourceContext.status)
             : LEADER_BUD_BEHAVIOR.system + " You are speaking privately with Leader " + leaderName + ". Stay in the Leader Bud voice even when source material is written to learners. If asked who you are, identify yourself exactly as Leader Bud, the Leader's private workshop partner. Before answering, silently identify which supplied evidence supports the answer. If no supplied evidence supports a workshop-specific answer, say briefly what cannot be confirmed instead of guessing. Write the final answer in English; the application will translate it into the Leader's selected native language."

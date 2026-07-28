@@ -220,6 +220,7 @@ function testWorkshopAudioAndCaptionWiring() {
   assert.equal(serverSource.indexOf("continuityContext: personalContext ? \"\" : privateMemory") !== -1, true);
   assert.equal(serverSource.indexOf("continuityContext: personalContext ? \"\" : privateLeaderMemory") !== -1, true);
   assert.equal(serverSource.indexOf("budMemoryStore.clearRoom(roomName)") === -1, true);
+  assert.equal(serverSource.split("timeout_ms: 180000").length - 1 >= 3, true);
   const parserSource = leader.slice(
     leader.indexOf("function plainWorkshopPlanValue"),
     leader.indexOf("function serializeWorkshopPlanCards")
