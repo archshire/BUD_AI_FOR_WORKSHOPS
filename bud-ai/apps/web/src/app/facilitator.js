@@ -33,6 +33,7 @@ const elements = {
   roomList: document.getElementById("room-list"),
   sourcePackForm: document.getElementById("source-pack-form"),
   sourcePackFile: document.getElementById("source-pack-file"),
+  sourcePackRole: document.getElementById("source-pack-role"),
   sourcePackStatus: document.getElementById("source-pack-status"),
   sourcePackList: document.getElementById("source-pack-list")
   ,facilBudAvatar: document.getElementById("facil-bud-avatar")
@@ -170,6 +171,7 @@ function uploadSourceMaterial(event) {
         filename: file.name,
         mime_type: file.type,
         content_base64: contentBase64,
+        material_role: elements.sourcePackRole.value,
         uploaded_by: "facilitator-1"
       })
     })
@@ -219,7 +221,7 @@ function renderSourcePack(sourcePack) {
     item.appendChild(title);
     const details = document.createElement("span");
     details.textContent = version.materials.map(function (material) {
-      return material.filename + " - " + material.chunk_count + " extracted section(s)";
+      return material.filename + " [" + material.material_role + "] - " + material.chunk_count + " extracted section(s)";
     }).join("; ");
     item.appendChild(details);
     if (version.status !== "active") {

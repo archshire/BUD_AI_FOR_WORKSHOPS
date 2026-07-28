@@ -3,7 +3,7 @@ FROM node:22-bookworm-slim
 WORKDIR /app
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends poppler-utils unzip \
+  && apt-get install -y --no-install-recommends libreoffice-impress poppler-utils unzip \
   && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./

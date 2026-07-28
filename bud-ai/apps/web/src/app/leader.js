@@ -4,8 +4,9 @@ const micDetail = document.querySelector("#mic-test-detail");
 const micCheck = document.querySelector("#mic-check");
 const toolsStatus = document.querySelector("#tools-status");
 const micMeter = document.querySelector("#mic-meter");
-const sourceFile = document.querySelector("#source-file");
-const uploadSourceButton = document.querySelector("#upload-source-button");
+const sourceFiles = Array.prototype.slice.call(document.querySelectorAll(".source-file"));
+const uploadSourceButtons = Array.prototype.slice.call(document.querySelectorAll(".upload-source-button"));
+const sourceMaterialList = document.querySelector("#source-material-list");
 const generatePlanButton = document.querySelector("#generate-plan-button");
 const savePlanButton = document.querySelector("#save-plan-button");
 const lockPlanButton = document.querySelector("#lock-plan-button");
@@ -49,17 +50,51 @@ const roomChatInput = document.querySelector("#room-chat-input");
 const roomTalkButton = document.querySelector("#room-talk");
 const roomCaptionList = document.querySelector("#room-caption-list");
 const clearRoomCaptions = document.querySelector("#clear-room-captions");
-const livePlanPanel = document.querySelector("#live-plan-panel");
-const liveLearningPlan = document.querySelector("#live-learning-plan");
+const leaderDocumentMeta = document.querySelector("#leader-document-meta");
+const leaderDocumentLocation = document.querySelector("#leader-document-location");
+const leaderDocumentPageNumber = document.querySelector("#leader-document-page-number");
+const leaderDocumentPageHeading = document.querySelector("#leader-document-page-heading");
+const leaderDocumentContent = document.querySelector("#leader-document-content");
+const leaderDocumentPrevious = document.querySelector("#leader-document-previous");
+const leaderDocumentNext = document.querySelector("#leader-document-next");
 const livePlanEmpty = document.querySelector("#live-plan-empty");
+const fullLearningPlan = document.querySelector("#full-learning-plan");
+const reviewLockPlanButton = document.querySelector("#review-lock-plan-button");
+const planReviewStatus = document.querySelector("#plan-review-status");
+const planReviewMessage = document.querySelector("#plan-review-message");
+const leaderLivePlanTasks = document.querySelector("#leader-live-plan-tasks");
+const leaderLivePlanProgress = document.querySelector("#leader-live-plan-progress");
 const roomInsightsSummary = document.querySelector("#room-insights-summary");
 const taskInsightsList = document.querySelector("#task-insights-list");
 let workshopRoom = null;
+let sourcePackPreparedForSession = false;
+let sourcePackPreparationPromise = null;
+let planGenerationComplete = false;
+let planLockComplete = false;
 let roomPrepared = false;
 let leaderBudLaunched = false;
 let liveGuestParticipants = [];
 let roomCaptionFeed = null;
 let breakoutCaptionFeeds = {};
+const sourceCategoryLabels = {
+  slides: "Workshop slides",
+  curriculum: "Curriculum and learning goals",
+  teaching_notes: "Teaching notes and explanations",
+  uncategorized: "Uncategorized legacy material"
+};
+const sourceCategoryUploadLabels = {
+  slides: "Upload slides",
+  curriculum: "Upload curriculum",
+  teaching_notes: "Upload teaching notes"
+};
+let leaderWorkshopPages = [];
+let leaderDocumentPageIndex = 0;
+let leaderLearningPlan = "";
+let leaderLearningPlanTasks = [];
+let workshopPlanCards = [];
+let leaderActiveTaskIndex = 0;
+let leaderCompletedTaskIndexes = [];
+let expandedLeaderTasks = {};
 const demoRegisteredParticipants = [
   { name: "Aisha Rahman", email: "aisha.rahman@example.com", present: true },
   { name: "Daniel Tan", email: "daniel.tan@example.com", present: true },
@@ -154,18 +189,23 @@ function updateSetupSequence() {
   if (!hasName && !micTestActive) micButton.disabled = true;
   learningFlowBox.classList.toggle("is-locked", !learningReady);
   learningFlowBox.setAttribute("aria-disabled", String(!learningReady));
-  [sourceFile, uploadSourceButton, generatePlanButton].forEach(function (control) {
+  sourceFiles.concat(uploadSourceButtons, [generatePlanButton]).forEach(function (control) {
     control.disabled = !learningReady;
   });
-  const planLocked = learningPlanOutput.readOnly && learningPlanOutput.value.trim();
-  const budReady = learningReady && Boolean(planLocked);
+  const hasGeneratedPlan = planGenerationComplete && Boolean(learningPlanOutput.value.trim());
+  const planLocked = planLockComplete && Boolean(learningPlanOutput.readOnly && learningPlanOutput.value.trim());
+  const budReady = roomPrepared;
+  const workshopComplete = leaderLearningPlanTasks.length > 0 &&
+    leaderLearningPlanTasks.every(function (_, index) {
+      return leaderCompletedTaskIndexes.indexOf(index) !== -1;
+    });
   budConfigBox.classList.toggle("is-locked", !budReady);
   budConfigBox.setAttribute("aria-disabled", String(!budReady));
   leaderNativeLanguage.disabled = !budReady;
   launchLeaderBudButton.disabled = !budReady || !leaderNativeLanguage.value || leaderBudLaunched;
   if (!budReady) {
     budConfigStatus.textContent = "Setup incomplete";
-    budConfigStatusText.textContent = "Lock the learning plan before configuring your BUD.";
+    budConfigStatusText.textContent = "Prepare the main workshop room before configuring your BUD.";
   } else if (!leaderBudLaunched) {
     budConfigStatus.textContent = leaderNativeLanguage.value ? "Ready to launch" : "Choose language";
     budConfigStatusText.textContent = leaderNativeLanguage.value ? "Launch Bud to open the private chat." : "Choose your native language to continue.";
@@ -173,18 +213,27 @@ function updateSetupSequence() {
   openLeaderRoomButton.disabled = !planLocked || roomPrepared;
   tabs.slice(1).forEach(function (tab) {
     const target = tab.getAttribute("href").slice(1);
-    const locked = target === "rooms" ? !planLocked : !planLocked || !roomPrepared;
+    const locked = {
+      "plan-view": !hasGeneratedPlan,
+      rooms: !planLocked,
+      "launch-bud": !roomPrepared,
+      "source-pack": !leaderBudLaunched,
+      insights: !workshopComplete
+    }[target];
     tab.classList.toggle("is-locked", locked);
     tab.setAttribute("aria-disabled", String(locked));
   });
   if (planLocked && roomPrepared) {
-    livePlanPanel.hidden = false;
     livePlanEmpty.hidden = true;
-    liveLearningPlan.textContent = learningPlanOutput.value.trim();
   } else {
-    livePlanPanel.hidden = true;
     livePlanEmpty.hidden = false;
   }
+  reviewLockPlanButton.disabled = !learningPlanOutput.value.trim() || Boolean(planLocked);
+  reviewLockPlanButton.innerHTML = planLocked
+    ? '<span aria-hidden="true">&#128274;</span> Workshop plan locked'
+    : '<span aria-hidden="true">&#128275;</span> Lock workshop plan';
+  planReviewStatus.textContent = planLocked ? "Locked" : "Draft";
+  renderWorkshopPlanCards();
 }
 
 leaderNameInput.addEventListener("input", function () {
@@ -443,14 +492,39 @@ function renderRoomChat(messages) {
     const item = document.createElement("article");
     item.className = "leader-public-chat-message";
     const sender = document.createElement("strong");
-    sender.textContent = message.sender_id === "facilitator-1" ? "You" : message.sender_display_name || message.sender_id || "Participant";
-    const text = document.createElement("p");
-    text.textContent = message.text;
+    sender.textContent = message.sender_id === "facilitator-1"
+      ? "You"
+      : message.display_name || message.sender_display_name || message.sender_id || "Participant";
+    const original = document.createElement("p");
+    original.className = "leader-public-chat-original";
+    original.lang = message.original_language || message.language || "";
+    original.textContent = message.original_text || message.text || "";
     item.appendChild(sender);
-    item.appendChild(text);
+    item.appendChild(original);
+    if (message.translated_text) {
+      const translated = document.createElement("p");
+      translated.className = "leader-public-chat-translated";
+      translated.lang = message.target_language || "";
+      translated.textContent = message.translated_text;
+      item.appendChild(translated);
+    }
     roomChatMessages.appendChild(item);
   });
   roomChatMessages.scrollTop = roomChatMessages.scrollHeight;
+}
+
+function refreshLeaderRoomChat() {
+  const roomName = roomNameInput.value.trim() || "BUD-101";
+  const targetLanguage = leaderNativeLanguage.value || "en";
+  fetch("/api/group-messages?room=" + encodeURIComponent(roomName) +
+    "&participant_id=facilitator-1&scope=public&target=" + encodeURIComponent(targetLanguage))
+    .then(function (response) {
+      return response.ok ? response.json() : Promise.reject(new Error("Chat unavailable"));
+    })
+    .then(function (payload) {
+      renderRoomChat(payload.messages || []);
+    })
+    .catch(function () {});
 }
 
 function renderTaskInsights(taskInsights, roomLearnerTotal) {
@@ -545,12 +619,395 @@ function taskStatePieGradient(segments, total) {
   return "conic-gradient(" + (stops.join(", ") || "#e9eef0 0 100%") + ")";
 }
 
+function refreshLeaderWorkshopMaterial() {
+  const roomName = roomNameInput.value.trim() || "BUD-101";
+  Promise.all([
+    fetch("/api/workshop-material?room=" + encodeURIComponent(roomName)).then(function (response) {
+      if (!response.ok) throw new Error("Workshop material unavailable");
+      return response.json();
+    }),
+    fetch("/api/workshop-document-control?room=" + encodeURIComponent(roomName)).then(function (response) {
+      if (!response.ok) throw new Error("Workshop document control unavailable");
+      return response.json();
+    })
+  ]).then(function (results) {
+    const material = results[0];
+    const control = results[1];
+    leaderLearningPlan = material.learning_plan || leaderLearningPlan || "";
+    if (leaderLearningPlan && !learningPlanOutput.value.trim()) {
+      learningPlanOutput.value = leaderLearningPlan;
+      learningPlanOutput.readOnly = true;
+      learningPlanOutput.hidden = true;
+      workshopPlanCards = parseWorkshopPlanCards(leaderLearningPlan);
+      lockPlanButton.hidden = false;
+      lockPlanButton.innerHTML = '<span aria-hidden="true">&#128274;</span> Learning plan locked';
+      updateSetupSequence();
+    }
+    leaderLearningPlanTasks = parseLeaderLearningPlanTasks(leaderLearningPlan);
+    leaderActiveTaskIndex = control.active_task_index === null ? -1 : Number(control.active_task_index) || 0;
+    leaderCompletedTaskIndexes = Array.isArray(control.completed_task_indexes) ? control.completed_task_indexes : [];
+    leaderWorkshopPages = material.pages && material.pages.length ? material.pages : [{
+      filename: "Workshop documents",
+      location: "Current activity",
+      text: "Publish workshop slides to display them here."
+    }];
+    leaderDocumentPageIndex = Math.max(0, Math.min(leaderWorkshopPages.length - 1, Number(control.page_index) || 0));
+    renderLeaderDocumentPage();
+    renderLeaderLearningPlanTasks();
+    renderWorkshopPlanCards();
+    updateSetupSequence();
+  }).catch(function () {});
+}
+
+function parseLeaderLearningPlanTasks(plan) {
+  const lines = String(plan || "").split(/\r?\n/).map(function (line) { return line.trim(); }).filter(Boolean);
+  const tasks = [];
+  let currentSection = "";
+  lines.forEach(function (line) {
+    const heading = line.match(/^#{1,6}\s+(.+)/);
+    const numbered = line.match(/^\d+[\).\s-]+(.+)/);
+    if (heading) currentSection = heading[1].replace(/[*_`:#]+$/g, "").trim();
+    else if (numbered && !/\btask\b/i.test(line)) currentSection = numbered[1].replace(/[:*#]+$/g, "").trim();
+    const taskMatch = line.match(/\btask\b\s*[:\-]\s*(.+)$/i);
+    if (taskMatch) {
+      tasks.push({ title: currentSection || "Learning point " + (tasks.length + 1), text: taskMatch[1].trim(), comprehensionCheck: "" });
+      return;
+    }
+    const checkMatch = line.match(/\b(?:comprehension\s+check|check|completion\s+action)\b\s*[:\-]\s*(.+)$/i);
+    if (checkMatch && tasks.length) {
+      tasks[tasks.length - 1].comprehensionCheck = checkMatch[1].trim();
+      return;
+    }
+    if (/^[-*]\s+/.test(line) && /\b(complete|identify|discuss|write|compare|reflect|create|answer|read)\b/i.test(line)) {
+      tasks.push({ title: currentSection || "Learning point " + (tasks.length + 1), text: line.replace(/^[-*]\s+/, "") });
+    }
+  });
+  return tasks;
+}
+
+function renderLeaderLearningPlanTasks() {
+  leaderLivePlanTasks.innerHTML = "";
+  const completedCount = leaderCompletedTaskIndexes.filter(function (index) {
+    return index >= 0 && index < leaderLearningPlanTasks.length;
+  }).length;
+  leaderLivePlanProgress.textContent = completedCount + " / " + leaderLearningPlanTasks.length;
+  if (!leaderLearningPlanTasks.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty";
+    empty.textContent = "No learning points published.";
+    leaderLivePlanTasks.appendChild(empty);
+    return;
+  }
+  leaderLearningPlanTasks.forEach(function (task, index) {
+    const isComplete = leaderCompletedTaskIndexes.indexOf(index) !== -1;
+    const isCurrent = index === leaderActiveTaskIndex;
+    const isExpanded = Boolean(expandedLeaderTasks[index]);
+    const card = document.createElement("article");
+    card.className = "leader-learning-point" + (isCurrent ? " is-current" : "") + (isComplete ? " is-complete" : "");
+    const heading = document.createElement("div");
+    heading.className = "leader-learning-point-heading";
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = isComplete;
+    checkbox.setAttribute("aria-label", "Mark learning point " + (index + 1) + " complete");
+    checkbox.addEventListener("change", function () {
+      updateLeaderLearningPlanTask(index, checkbox.checked);
+    });
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "leader-learning-point-toggle";
+    toggle.setAttribute("aria-expanded", String(isExpanded));
+    const title = document.createElement("span");
+    const pointLabel = document.createElement("small");
+    pointLabel.textContent = "Point " + (index + 1);
+    const pointTitle = document.createElement("strong");
+    pointTitle.textContent = task.title;
+    title.append(pointLabel, pointTitle);
+    const chevron = document.createElement("i");
+    chevron.setAttribute("aria-hidden", "true");
+    chevron.textContent = isExpanded ? "−" : "+";
+    toggle.append(title, chevron);
+    toggle.addEventListener("click", function () {
+      expandedLeaderTasks[index] = !expandedLeaderTasks[index];
+      renderLeaderLearningPlanTasks();
+    });
+    heading.append(checkbox, toggle);
+    const details = document.createElement("p");
+    details.className = "leader-learning-point-details";
+    details.textContent = task.text + (task.comprehensionCheck ? "\nCheck: " + task.comprehensionCheck : "");
+    details.hidden = !isExpanded;
+    card.append(heading, details);
+    leaderLivePlanTasks.appendChild(card);
+  });
+}
+
+function updateLeaderLearningPlanTask(taskIndex, completed) {
+  fetch("/api/facilitator/learning-plan-task", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      room_name: roomNameInput.value.trim() || "BUD-101",
+      task_index: taskIndex,
+      task_count: leaderLearningPlanTasks.length,
+      completed: completed,
+      updated_by: "facilitator-1"
+    })
+  }).then(function (response) {
+    if (!response.ok) throw new Error("Unable to update the learning point");
+    return response.json();
+  }).then(function (control) {
+    leaderActiveTaskIndex = control.active_task_index === null ? -1 : control.active_task_index;
+    leaderCompletedTaskIndexes = control.completed_task_indexes || [];
+    renderLeaderLearningPlanTasks();
+    updateSetupSequence();
+  }).catch(refreshLeaderWorkshopMaterial);
+}
+
+function changeLeaderDocumentPage(delta) {
+  if (!leaderWorkshopPages.length) return;
+  const nextPageIndex = Math.max(0, Math.min(leaderWorkshopPages.length - 1, leaderDocumentPageIndex + delta));
+  if (nextPageIndex === leaderDocumentPageIndex) return;
+  fetch("/api/facilitator/workshop-document", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      room_name: roomNameInput.value.trim() || "BUD-101",
+      page_index: nextPageIndex,
+      updated_by: "facilitator-1"
+    })
+  }).then(function (response) {
+    if (!response.ok) throw new Error("Unable to update the workshop document");
+    return response.json();
+  }).then(function (control) {
+    leaderDocumentPageIndex = control.page_index;
+    renderLeaderDocumentPage();
+  }).catch(function () {});
+}
+
+function renderLeaderDocumentPage() {
+  const page = leaderWorkshopPages[leaderDocumentPageIndex];
+  if (!page) return;
+  leaderDocumentMeta.textContent = page.filename;
+  leaderDocumentLocation.textContent = page.location || "Workshop material";
+  leaderDocumentPageNumber.textContent = "Page " + (leaderDocumentPageIndex + 1) + " of " + leaderWorkshopPages.length;
+  leaderDocumentPageHeading.textContent = page.filename;
+  leaderDocumentContent.innerHTML = "";
+  if (page.rendered_slide_url) {
+    const stage = document.createElement("div");
+    stage.className = "leader-rendered-document-stage";
+    const slide = document.createElement("img");
+    slide.className = "leader-rendered-document-slide";
+    slide.alt = "Slide " + (Number(page.rendered_page) || leaderDocumentPageIndex + 1) + " from " + page.filename;
+    slide.src = page.rendered_slide_url;
+    stage.appendChild(slide);
+    leaderDocumentContent.appendChild(stage);
+  } else {
+    const blocks = Array.isArray(page.blocks) ? page.blocks : [];
+    if (blocks.length) {
+      blocks.forEach(function (block) { leaderDocumentContent.appendChild(renderLeaderDocxBlock(block)); });
+    } else {
+      const paragraph = document.createElement("p");
+      paragraph.textContent = page.text || "";
+      leaderDocumentContent.appendChild(paragraph);
+    }
+  }
+  leaderDocumentPrevious.disabled = leaderDocumentPageIndex === 0;
+  leaderDocumentNext.disabled = leaderDocumentPageIndex === leaderWorkshopPages.length - 1;
+}
+
+function renderLeaderDocxBlock(block) {
+  if (block.type === "table") {
+    const table = document.createElement("table");
+    table.className = "docx-table";
+    (block.rows || []).forEach(function (row) {
+      const tr = document.createElement("tr");
+      row.forEach(function (cell) {
+        const td = document.createElement("td");
+        td.textContent = cell;
+        tr.appendChild(td);
+      });
+      table.appendChild(tr);
+    });
+    return table;
+  }
+  const tagName = block.type === "title" ? "h2"
+    : block.type === "heading1" ? "h3"
+    : block.type === "heading2" ? "h4"
+    : block.type === "heading3" ? "h5"
+    : block.list ? "li"
+    : "p";
+  const element = document.createElement(tagName);
+  element.className = "docx-block docx-" + (block.type || "paragraph");
+  if (block.align) element.dataset.align = block.align;
+  const runs = Array.isArray(block.runs) && block.runs.length ? block.runs : [{ text: block.text || "" }];
+  runs.forEach(function (run) {
+    let node = document.createTextNode(run.text || "");
+    ["underline", "italic", "bold"].forEach(function (style) {
+      if (!run[style]) return;
+      const wrapper = document.createElement(style === "underline" ? "u" : style === "italic" ? "em" : "strong");
+      wrapper.appendChild(node);
+      node = wrapper;
+    });
+    element.appendChild(node);
+  });
+  return element;
+}
+
+function plainWorkshopPlanValue(value) {
+  return String(value || "").replace(/^[\s#>*_`-]+/, "").replace(/[\s*_`:#]+$/, "").trim();
+}
+
+function parseWorkshopPlanCards(plan) {
+  const cards = [];
+  let card = null;
+  let pendingField = "";
+  function ensureCard() {
+    if (!card) card = { title: "", learnerTask: "", comprehensionCheck: "" };
+    return card;
+  }
+  function commitCard() {
+    if (card && (card.title || card.learnerTask || card.comprehensionCheck)) cards.push(card);
+    card = null;
+    pendingField = "";
+  }
+  String(plan || "").replace(/\r/g, "").split("\n").forEach(function (rawLine) {
+    const line = rawLine.trim();
+    if (!line) return;
+    const numbered = line.match(/^\d+[.)]\s+(.+)$/);
+    const heading = line.match(/^#{1,6}\s+(.+)$/);
+    if (numbered || heading) {
+      commitCard();
+      card = { title: plainWorkshopPlanValue((numbered || heading)[1]), learnerTask: "", comprehensionCheck: "" };
+      return;
+    }
+    const normalized = line.replace(/^[-*+]\s+/, "").replace(/^\*\*([^*]+)\*\*\s*/, "$1 ");
+    const labelled = normalized.match(/^(?:\*\*)?(learner\s+task|task|explanation|comprehension\s+check|check|completion\s+action)(?:\*\*)?\s*[:\-]?\s*(.*)$/i);
+    if (labelled) {
+      const target = ensureCard();
+      pendingField = /comprehension|check|completion/i.test(labelled[1])
+        ? "comprehensionCheck"
+        : "learnerTask";
+      const value = plainWorkshopPlanValue(labelled[2]);
+      if (value) target[pendingField] = value;
+      return;
+    }
+    const value = plainWorkshopPlanValue(normalized);
+    if (pendingField && value) {
+      const target = ensureCard();
+      target[pendingField] += (target[pendingField] ? "\n" : "") + value;
+      return;
+    }
+    if (card && value) {
+      const target = ensureCard();
+      if (!target.learnerTask) target.learnerTask = value;
+      else if (!target.comprehensionCheck) target.comprehensionCheck = value;
+    } else if (/^[-*+]\s+/.test(line)) {
+      ensureCard().learnerTask = value;
+    }
+  });
+  commitCard();
+  return cards;
+}
+
+function serializeWorkshopPlanCards() {
+  return workshopPlanCards.map(function (card, index) {
+    return [
+      String(index + 1) + ". " + card.title.trim(),
+      "   Learner task: " + card.learnerTask.trim(),
+      "   Comprehension check: " + card.comprehensionCheck.trim()
+    ].join("\n");
+  }).join("\n\n");
+}
+
+function syncWorkshopPlanOutput() {
+  learningPlanOutput.value = serializeWorkshopPlanCards();
+  leaderLearningPlan = learningPlanOutput.value;
+}
+
+function renderWorkshopPlanCards() {
+  fullLearningPlan.innerHTML = "";
+  const locked = Boolean(learningPlanOutput.readOnly && learningPlanOutput.value.trim());
+  if (!workshopPlanCards.length && locked) {
+    const empty = document.createElement("p");
+    empty.className = "workshop-plan-empty";
+    empty.textContent = "Generate a learning plan from the curriculum to create task cards.";
+    fullLearningPlan.appendChild(empty);
+  }
+  workshopPlanCards.forEach(function (task, index) {
+    const card = document.createElement("article");
+    card.className = "workshop-task-card" + (locked ? " is-locked" : "");
+    const header = document.createElement("div");
+    header.className = "workshop-task-card-header";
+    const chapter = document.createElement("span");
+    chapter.textContent = "Chapter " + (index + 1);
+    header.appendChild(chapter);
+    if (!locked) {
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "workshop-task-remove";
+      remove.textContent = "Remove";
+      remove.addEventListener("click", function () {
+        workshopPlanCards.splice(index, 1);
+        syncWorkshopPlanOutput();
+        updateSetupSequence();
+      });
+      header.appendChild(remove);
+    }
+    card.append(
+      header,
+      workshopPlanField("Task title", "input", "workshop-task-title", task.title, locked, function (value) { task.title = value; }),
+      workshopPlanField("Learner task / explanation", "textarea", "workshop-task-explanation", task.learnerTask, locked, function (value) { task.learnerTask = value; }),
+      workshopPlanField("Comprehension check", "textarea", "workshop-task-check", task.comprehensionCheck, locked, function (value) { task.comprehensionCheck = value; })
+    );
+    fullLearningPlan.appendChild(card);
+  });
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "workshop-add-task";
+  add.disabled = locked;
+  add.innerHTML = '<span class="plus" aria-hidden="true">+</span><strong>' + (locked ? "Plan locked" : "Add learner task") + "</strong>";
+  if (!locked) {
+    add.addEventListener("click", function () {
+      workshopPlanCards.push({ title: "", learnerTask: "", comprehensionCheck: "" });
+      syncWorkshopPlanOutput();
+      updateSetupSequence();
+      const titles = fullLearningPlan.querySelectorAll(".workshop-task-title");
+      if (titles.length) titles[titles.length - 1].focus();
+    });
+  }
+  fullLearningPlan.appendChild(add);
+}
+
+function workshopPlanField(labelText, tagName, className, value, locked, update) {
+  const label = document.createElement("label");
+  label.appendChild(document.createTextNode(labelText));
+  const field = document.createElement(tagName);
+  field.className = className;
+  field.value = value || "";
+  field.disabled = locked;
+  field.addEventListener("input", function () {
+    update(field.value);
+    syncWorkshopPlanOutput();
+    planReviewStatus.textContent = "Draft";
+  });
+  label.appendChild(field);
+  return label;
+}
+
+function validateWorkshopPlanCards() {
+  if (!workshopPlanCards.length) return "Add at least one learner task before locking the plan.";
+  const incompleteIndex = workshopPlanCards.findIndex(function (task) {
+    return !task.title.trim() || !task.learnerTask.trim() || !task.comprehensionCheck.trim();
+  });
+  return incompleteIndex === -1 ? "" : "Complete the title, learner task, and comprehension check for Chapter " + (incompleteIndex + 1) + ".";
+}
+
 function refreshLeaderState() {
   fetch("/api/facilitator/state?room=" + encodeURIComponent(roomNameInput.value.trim() || "BUD-101"))
     .then(function (response) { return response.ok ? response.json() : Promise.reject(new Error("State unavailable")); })
     .then(function (state) {
       renderTaskInsights(state.task_insights || [], (state.participants || []).length);
-      renderRoomChat(state.public_messages || []);
+      refreshLeaderRoomChat();
     })
     .catch(function () {});
 }
@@ -564,7 +1021,7 @@ roomChatForm.addEventListener("submit", function (event) {
     .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
     .then(function (result) {
       if (!result.ok) throw new Error(result.body.error || "Unable to post to the room");
-      renderRoomChat(result.body.state && result.body.state.public_messages || [{ sender_id: "facilitator-1", sender_display_name: leaderName(), text: text }]);
+      refreshLeaderRoomChat();
     })
     .catch(function () { renderRoomChat([{ sender_id: "facilitator-1", sender_display_name: leaderName(), text: text }]); });
 });
@@ -576,6 +1033,10 @@ function submitChatOnEnter(event) {
 }
 
 roomChatInput.addEventListener("keydown", submitChatOnEnter);
+leaderDocumentPrevious.addEventListener("click", function () { changeLeaderDocumentPage(-1); });
+leaderDocumentNext.addEventListener("click", function () { changeLeaderDocumentPage(1); });
+roomNameInput.addEventListener("change", refreshLeaderWorkshopMaterial);
+if (leaderNativeLanguage) leaderNativeLanguage.addEventListener("change", refreshLeaderRoomChat);
 
 if (roomTalkButton) roomTalkButton.addEventListener("click", toggleLeaderMainRoomTalk);
 
@@ -595,8 +1056,10 @@ if (window.BudCaptionFeed && roomCaptionList) {
 renderAttendance();
 refreshLiveGuests();
 refreshLeaderState();
+refreshLeaderWorkshopMaterial();
 window.setInterval(refreshLiveGuests, 3000);
 window.setInterval(refreshLeaderState, 3000);
+window.setInterval(refreshLeaderWorkshopMaterial, 5000);
 
 function renderLeaderBudMessages(messages) {
   leaderBudMessages.innerHTML = "";
@@ -672,36 +1135,148 @@ leaderBudForm.addEventListener("submit", function (event) {
 
 leaderBudInput.addEventListener("keydown", submitChatOnEnter);
 
-uploadSourceButton.addEventListener("click", function () { sourceFile.click(); });
+uploadSourceButtons.forEach(function (button) {
+  button.addEventListener("click", function () {
+    const fileInput = document.getElementById(button.dataset.fileInput);
+    if (fileInput) fileInput.click();
+  });
+});
 
-sourceFile.addEventListener("change", function () {
-  const file = sourceFile.files[0];
+sourceFiles.forEach(function (fileInput) {
+  fileInput.addEventListener("change", function () {
+    uploadCategorizedSource(fileInput, fileInput.dataset.materialRole);
+  });
+});
+
+function uploadCategorizedSource(fileInput, materialRole) {
+  const file = fileInput.files[0];
   if (!file) return;
   planLockHint.hidden = true;
   if (file.size > 15 * 1024 * 1024) {
     sourceStatus.textContent = "Source files must be 15 MB or smaller.";
     return;
   }
-  sourceStatus.textContent = "Uploading " + file.name + "...";
+  const categoryLabel = sourceCategoryLabels[materialRole] || materialRole;
   const reader = new FileReader();
   reader.onload = function () {
     const contentBase64 = String(reader.result).split(",")[1] || "";
     fetch("/api/facilitator/source-material", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ room_name: roomNameInput.value.trim() || "BUD-101", filename: file.name, mime_type: file.type, content_base64: contentBase64, uploaded_by: "facilitator-1" })
+      body: JSON.stringify({
+        room_name: roomNameInput.value.trim() || "BUD-101",
+        filename: file.name,
+        mime_type: file.type,
+        content_base64: contentBase64,
+        material_role: materialRole,
+        uploaded_by: "facilitator-1"
+      })
     })
       .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
       .then(function (result) {
         if (!result.ok) throw new Error(result.body.error || "Unable to upload source material");
-        sourceStatus.textContent = "Uploaded " + file.name + ". Generate a learning plan when ready.";
-        sourceFile.value = "";
+        sourceStatus.textContent = "Uploaded " + file.name + " to " + categoryLabel + ".";
+        fileInput.value = "";
+        renderLeaderSourcePack(result.body.source_pack);
       })
       .catch(function (error) { sourceStatus.textContent = error.message; });
   };
   reader.onerror = function () { sourceStatus.textContent = "Unable to read this file."; };
-  reader.readAsDataURL(file);
-});
+  prepareSourcePackForUpload()
+    .then(function () {
+      sourceStatus.textContent = "Uploading " + file.name + " to " + categoryLabel + "...";
+      reader.readAsDataURL(file);
+    })
+    .catch(function () {
+      fileInput.value = "";
+    });
+}
+
+function prepareSourcePackForUpload() {
+  if (sourcePackPreparedForSession) return Promise.resolve();
+  if (!sourcePackPreparationPromise) {
+    sourcePackPreparationPromise = resetLeaderSourcePack()
+      .finally(function () {
+        sourcePackPreparationPromise = null;
+      });
+  }
+  return sourcePackPreparationPromise;
+}
+
+function resetLeaderSourcePack() {
+  sourceStatus.textContent = "Starting with fresh workshop materials...";
+  return fetch("/api/facilitator/source-pack/reset", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ room_name: roomNameInput.value.trim() || "BUD-101" })
+  })
+    .then(function (response) {
+      return response.json().then(function (body) { return { ok: response.ok, body: body }; });
+    })
+    .then(function (result) {
+      if (!result.ok) throw new Error(result.body.error || "Unable to reset workshop materials");
+      learningPlanOutput.value = "";
+      learningPlanOutput.readOnly = false;
+      planGenerationComplete = false;
+      planLockComplete = false;
+      roomPrepared = false;
+      leaderBudLaunched = false;
+      sourcePackPreparedForSession = true;
+      leaderLearningPlan = "";
+      workshopPlanCards = [];
+      savePlanButton.hidden = true;
+      lockPlanButton.hidden = true;
+      planLockHint.hidden = true;
+      planReviewMessage.textContent = "";
+      renderLeaderSourcePack(result.body.source_pack);
+      sourceStatus.textContent = "";
+      updateSetupSequence();
+    })
+    .catch(function (error) {
+      if (sourceMaterialList) sourceMaterialList.textContent = "Could not start a fresh workshop setup.";
+      sourceStatus.textContent = "Unable to reset workshop materials. Refresh and try again.";
+      throw error;
+    });
+}
+
+function renderLeaderSourcePack(sourcePack) {
+  if (!sourceMaterialList) return;
+  const versions = sourcePack.versions || [];
+  const latest = versions[versions.length - 1];
+  sourceMaterialList.innerHTML = "";
+  const latestByRole = {};
+  if (latest) {
+    latest.materials.forEach(function (material) {
+      if (sourceCategoryUploadLabels[material.material_role]) {
+        latestByRole[material.material_role] = material;
+      }
+    });
+  }
+  uploadSourceButtons.forEach(function (button) {
+    const material = latestByRole[button.dataset.materialRole];
+    button.textContent = material
+      ? "Upload: " + material.filename
+      : sourceCategoryUploadLabels[button.dataset.materialRole];
+    button.classList.toggle("is-uploaded", Boolean(material));
+  });
+  const categorizedMaterials = Object.keys(sourceCategoryUploadLabels).map(function (role) {
+    return latestByRole[role];
+  }).filter(Boolean);
+  if (!categorizedMaterials.length) {
+    sourceMaterialList.textContent = "No categorized workshop documents uploaded yet.";
+    return;
+  }
+  categorizedMaterials.forEach(function (material) {
+    const item = document.createElement("div");
+    item.className = "source-material-item";
+    const category = document.createElement("strong");
+    category.textContent = sourceCategoryLabels[material.material_role] || material.material_role;
+    const filename = document.createElement("span");
+    filename.textContent = material.filename;
+    item.append(category, filename);
+    sourceMaterialList.appendChild(item);
+  });
+}
 
 generatePlanButton.addEventListener("click", function () {
   planLockHint.hidden = true;
@@ -716,11 +1291,18 @@ generatePlanButton.addEventListener("click", function () {
     .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
     .then(function (result) {
       if (!result.ok) throw new Error(result.body.error || "Unable to generate learning plan");
-      learningPlanOutput.hidden = false;
+      learningPlanOutput.hidden = true;
       learningPlanOutput.value = result.body.learning_plan;
+      workshopPlanCards = parseWorkshopPlanCards(result.body.learning_plan);
+      if (!workshopPlanCards.length) {
+        workshopPlanCards = [{ title: "Learning chapter 1", learnerTask: plainWorkshopPlanValue(result.body.learning_plan), comprehensionCheck: "" }];
+      }
+      syncWorkshopPlanOutput();
       savePlanButton.hidden = false;
       lockPlanButton.hidden = false;
       learningPlanOutput.readOnly = false;
+      planGenerationComplete = true;
+      planLockComplete = false;
       lockPlanButton.innerHTML = '<span aria-hidden="true">&#128275;</span> Lock learning plan';
       sourceStatus.textContent = "Learning plan generated by " + leaderBudName() + " using " + result.body.provider + ".";
       planLockHint.hidden = false;
@@ -736,16 +1318,34 @@ generatePlanButton.addEventListener("click", function () {
     });
 });
 
-lockPlanButton.addEventListener("click", function () {
+function requestPlanLock() {
   if (learningPlanOutput.readOnly) return;
+  syncWorkshopPlanOutput();
+  const validationMessage = validateWorkshopPlanCards();
+  if (validationMessage) {
+    planReviewMessage.textContent = validationMessage;
+    sourceStatus.textContent = validationMessage;
+    return;
+  }
+  planReviewMessage.textContent = "";
+  const planTab = tabs.find(function (tab) { return tab.getAttribute("href") === "#plan-view"; });
+  if (planTab) planTab.click();
   lockConfirmation.hidden = false;
+  planReviewMessage.textContent = "Confirm the lock below.";
+  lockConfirmation.scrollIntoView({ block: "nearest" });
   confirmLockButton.focus();
-});
+}
+
+lockPlanButton.addEventListener("click", requestPlanLock);
+reviewLockPlanButton.addEventListener("click", requestPlanLock);
 
 confirmLockButton.addEventListener("click", function () {
+  syncWorkshopPlanOutput();
   confirmLockButton.disabled = true;
+  confirmLockButton.textContent = "Locking...";
   cancelLockButton.disabled = true;
   sourceStatus.textContent = "Publishing workshop material...";
+  planReviewMessage.textContent = "Publishing and locking the workshop plan...";
   fetch("/api/facilitator/source-pack?room=" + encodeURIComponent(roomNameInput.value.trim() || "BUD-101"))
     .then(function (response) { return response.json().then(function (body) { return { ok: response.ok, body: body }; }); })
     .then(function (result) {
@@ -764,24 +1364,30 @@ confirmLockButton.addEventListener("click", function () {
     .then(function (result) {
       if (!result.ok) throw new Error(result.body.error || "Unable to publish workshop material");
       learningPlanOutput.readOnly = true;
+      planLockComplete = true;
       lockConfirmation.hidden = true;
       lockPlanButton.innerHTML = '<span aria-hidden="true">&#128274;</span> Learning plan locked';
       sourceStatus.textContent = "Learning plan locked. Buds will use the published workshop material.";
+      planReviewMessage.textContent = "Workshop plan locked. These chapters are ready for learners.";
       planLockHint.hidden = true;
+      renderWorkshopPlanCards();
       updateSetupSequence();
     })
     .catch(function (error) {
       sourceStatus.textContent = error.message;
+      planReviewMessage.textContent = "Unable to lock the workshop plan: " + error.message;
     })
     .finally(function () {
       confirmLockButton.disabled = false;
+      confirmLockButton.textContent = "Yes, lock plan";
       cancelLockButton.disabled = false;
     });
 });
 
 cancelLockButton.addEventListener("click", function () {
   lockConfirmation.hidden = true;
-  learningPlanOutput.focus();
+  const firstField = fullLearningPlan.querySelector("input, textarea");
+  if (firstField) firstField.focus();
   updateSetupSequence();
 });
 
@@ -797,7 +1403,7 @@ openLeaderRoomButton.addEventListener("click", function () {
   fetch("/api/facilitator/room", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ room_name: roomName, new_workshop: true })
+    body: JSON.stringify({ room_name: roomName })
   })
     .then(function (response) {
       return response.json().then(function (body) { return { ok: response.ok, body: body }; });

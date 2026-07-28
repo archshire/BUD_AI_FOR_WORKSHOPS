@@ -101,9 +101,15 @@
           </div>
           <span class="privacy-pill">Facilitator controlled</span>
         </div>
-        <p class="panel-note">Upload approved slides or documents so every Bud can follow the same workshop material.</p>
+        <p class="panel-note">Choose the document category before uploading so learner-visible slides remain separate from curriculum and teaching notes.</p>
         <form id="source-pack-form" class="management-form">
-          <label for="source-pack-file">Add source material</label>
+          <label for="source-pack-role">Document category</label>
+          <select id="source-pack-role">
+            <option value="slides">Workshop slides</option>
+            <option value="curriculum">Curriculum and learning goals</option>
+            <option value="teaching_notes">Teaching notes and explanations</option>
+          </select>
+          <label for="source-pack-file">Choose document</label>
           <div>
             <input id="source-pack-file" type="file" accept=".pptx,.pdf,.docx">
             <button class="primary-action" type="submit">Upload source</button>

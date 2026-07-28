@@ -2,7 +2,7 @@ const assert = require("assert");
 const { createBudRuntime } = require("../apps/server/src/runtime");
 const { createInMemoryStateStore } = require("../apps/server/src/state/in-memory-state-store");
 const { executeDecisionTools } = require("../apps/server/src/tools/tool-executor");
-const { createServer, checkinRecipients } = require("../apps/server/src/index");
+const { createServer, checkinRecipients, asksCurrentLesson, normalizeLearnerReasoningText, normalizeChineseBudReply } = require("../apps/server/src/index");
 const { createTranscriptLog } = require("../apps/server/src/transcript/transcript-log");
 const { createSentenceBuffer } = require("../apps/server/src/transcript/sentence-buffer");
 const { cleanTranscript } = require("../apps/server/src/providers/transcript-hygiene");
@@ -12,6 +12,7 @@ const { createCheckinScheduler, parseVerdict } = require("../apps/server/src/che
 const { createContextualMemoryLedger } = require("../apps/server/src/contextual-memory-ledger");
 const { createBudCognition } = require("../apps/server/src/bud-cognition");
 const { createBudMemoryStore } = require("../apps/server/src/bud-memory");
+const { createSourcePackStore } = require("../apps/server/src/source-pack");
 const { buildLeaderResponseBrief, classifyLeaderIntent, normalizeLeaderBudReply } = require("../apps/server/src/leader-response-brief");
 const { buildLearnerResponseBrief, classifyLearnerIntent, normalizeLearnerBudReply } = require("../apps/server/src/learner-response-brief");
 const { baseEvent } = require("../packages/test-fixtures/src/demo-events");
@@ -36,8 +37,12 @@ function run() {
   testContextualMemoryLedger();
   testBudCognitionScopes();
   testBudMemorySupportSignals();
+  testCategorizedSourcePackBoundaries();
+  testLongMarkdownGrounding();
   testLeaderResponseBrief();
   testLearnerResponseBrief();
+  testCurrentLessonIntentBoundary();
+  testChineseReasoningAliases();
   testTranscriptLogKeepsRoomSpeech();
   testTranscriptLogSurfacesOlderRelevantTurns();
   testSentenceBufferHoldsFragmentsUntilSentenceEnds();
@@ -56,17 +61,43 @@ function run() {
   testCheckinRecipientScoping();
   testLearnerCheckinRendering();
   testWorkshopAudioAndCaptionWiring();
-  testLeaderNameRouting(function () {
-    testLeaderBreakoutAssignmentFollowup(function () {
-      testLearnerNextStepAndUncertainty(function () {
-        testBreakoutServerEnforcesAssignment(function () {
-          testChatVisibilityAndLeaderContext(function () {
-            testLearnerServerApi(function () {
-              console.log("All Bud AI scaffold tests passed.");
+  testRootProblemDefinition(function () {
+    testLearnerNativeLanguageApi(function () {
+      testLeaderNameRouting(function () {
+        testLeaderBreakoutAssignmentFollowup(function () {
+          testLearnerNextStepAndUncertainty(function () {
+            testBreakoutServerEnforcesAssignment(function () {
+              testChatVisibilityAndLeaderContext(function () {
+                testLearnerServerApi(function () {
+                  console.log("All Bud AI scaffold tests passed.");
+                });
+              });
             });
           });
         });
       });
+    });
+  });
+}
+
+function testRootProblemDefinition(done) {
+  const server = createServer();
+  server.listen(0, "127.0.0.1", function () {
+    const port = server.address().port;
+    requestJson(port, "POST", "/api/private-message", {
+      room_name: "BUD-ROOT-PROBLEM",
+      participant_id: "learner-root-problem",
+      display_name: "Root Problem Learner",
+      native_language: "en",
+      text: "What does the root of the problem mean?"
+    }, function (payload) {
+      const answer = payload.state.private_messages.slice(-1)[0];
+      assert.equal(answer.provider, "learner-root-problem-definition");
+      assert.equal(
+        answer.text,
+        "It means the **fundamental, underlying cause** of a situation or trouble, rather than just the visible signs or surface symptoms."
+      );
+      server.close(done);
     });
   });
 }
@@ -77,16 +108,86 @@ function testWorkshopAudioAndCaptionWiring() {
   const appRoot = path.resolve(__dirname, "../apps/web/src/app");
   const leader = fs.readFileSync(path.join(appRoot, "leader.js"), "utf8");
   const leaderHtml = fs.readFileSync(path.join(appRoot, "leader.html"), "utf8");
+  const leaderCss = fs.readFileSync(path.join(appRoot, "leader.css"), "utf8");
   const learner = fs.readFileSync(path.join(appRoot, "learner.js"), "utf8");
+  const learnerApp = fs.readFileSync(path.join(appRoot, "app.js"), "utf8");
+  const learnerHtml = fs.readFileSync(path.join(appRoot, "learner.html"), "utf8");
+  const learnerCss = fs.readFileSync(path.join(appRoot, "styles.css"), "utf8");
 
+  assert.equal(leaderHtml.indexOf('class="leader-bud-panel" hidden') !== -1, true);
+  assert.equal(/\.leader-bud-panel\[hidden\]\s*\{\s*display:\s*none;\s*\}/.test(leaderCss), true);
+  assert.equal(leader.indexOf("leaderBudPanel.hidden = false;") !== -1, true);
+  assert.equal(/class="leader-sidebar"[\s\S]*<\/nav>\s*<aside id="leader-bud-panel"[\s\S]*<\/aside>\s*<\/div>/.test(leaderHtml), true);
+  assert.equal(/\.leader-sidebar\s*\{[^}]*gap:\s*9px/.test(leaderCss), true);
+  const setupTabIndex = leaderHtml.indexOf('href="#setup"');
+  const planTabIndex = leaderHtml.indexOf('href="#plan-view"');
+  const roomsTabIndex = leaderHtml.indexOf('href="#rooms"');
+  const workshopTabIndex = leaderHtml.indexOf('href="#source-pack"');
+  assert.equal(setupTabIndex < planTabIndex && planTabIndex < roomsTabIndex && roomsTabIndex < workshopTabIndex, true);
+  assert.equal(leaderHtml.indexOf('class="is-locked" href="#plan-view" aria-disabled="true"') !== -1, true);
+  assert.equal(leaderHtml.indexOf('class="is-locked" href="#rooms" aria-disabled="true"') !== -1, true);
+  assert.equal(leaderHtml.indexOf('class="is-locked" href="#launch-bud" aria-disabled="true"') !== -1, true);
+  assert.equal(leader.indexOf("let planGenerationComplete = false") !== -1, true);
+  assert.equal(leader.indexOf("let planLockComplete = false") !== -1, true);
+  assert.equal(leader.indexOf("const hasGeneratedPlan = planGenerationComplete") !== -1, true);
+  assert.equal(leader.indexOf("const planLocked = planLockComplete") !== -1, true);
+  assert.equal(leader.indexOf("planGenerationComplete = true") !== -1, true);
+  assert.equal(leader.indexOf("planLockComplete = true") !== -1, true);
+  assert.equal(leader.indexOf('"plan-view": !hasGeneratedPlan') !== -1, true);
+  assert.equal(leader.indexOf("rooms: !planLocked") !== -1, true);
+  assert.equal(leader.indexOf('"launch-bud": !roomPrepared') !== -1, true);
+  assert.equal(leader.indexOf('"source-pack": !leaderBudLaunched') !== -1, true);
+  assert.equal(leader.indexOf("insights: !workshopComplete") !== -1, true);
   assert.equal(leaderHtml.indexOf('id="room-caption-list"') !== -1, true);
   assert.equal(leaderHtml.indexOf('id="room-talk"') !== -1, true);
   assert.equal(leader.indexOf("localParticipant.setMicrophoneEnabled(true)") !== -1, true);
   assert.equal(leader.indexOf("localParticipant.setMicrophoneEnabled(false)") !== -1, true);
   assert.equal(leader.indexOf('"X-Group-Id": "group-main"') !== -1, true);
   assert.equal(leader.indexOf("attachBreakoutCaptionFeed(groupId") !== -1, true);
+  assert.equal(leader.indexOf("&participant_id=facilitator-1&scope=public&target=") !== -1, true);
+  assert.equal(leader.indexOf("message.translated_text") !== -1, true);
+  assert.equal(leader.indexOf("translated.textContent = message.translated_text") !== -1, true);
   assert.equal(learner.indexOf("ensureWorkshopAudioConnected();") !== -1, true);
   assert.equal(learner.indexOf("getGroupId: function () { return breakoutGroupId; }") !== -1, true);
+  ["en", "es", "zh", "my", "fr", "th", "ms"].forEach(function (language) {
+    const option = '<option value="' + language + '">';
+    assert.equal(learnerHtml.split(option).length - 1 >= 2, true);
+  });
+  assert.equal(learnerApp.indexOf("native_language: elements.nativeLanguageInput.value") !== -1, true);
+  assert.equal(learner.indexOf("&scope=group&target=") !== -1, true);
+  assert.equal(learner.indexOf("item.translated_text") !== -1, true);
+  assert.equal(learner.indexOf("translated.textContent = item.translated_text") !== -1, true);
+  assert.equal(learner.indexOf("bud-learner-native-language-") !== -1, true);
+  assert.equal(learner.indexOf('if (language === "zh")') !== -1, true);
+  assert.equal(learnerApp.indexOf('"&target=" + encodeURIComponent(selectedNativeLanguage())') !== -1, true);
+  assert.equal(learnerApp.indexOf("function renderLocalizedState") !== -1, true);
+  assert.equal(leader.indexOf("roomNameInput.addEventListener(\"change\", resetLeaderSourcePack)") === -1, true);
+  assert.equal(/\nresetLeaderSourcePack\(\);\n/.test(leader), false);
+  assert.equal(leader.indexOf("new_workshop: true") === -1, true);
+  assert.equal(leader.indexOf("body: JSON.stringify({ room_name: roomName })") !== -1, true);
+  assert.equal(leader.indexOf("let sourcePackPreparedForSession = false") !== -1, true);
+  assert.equal(leader.indexOf("prepareSourcePackForUpload()") !== -1, true);
+  assert.equal(leader.indexOf("sourcePackPreparedForSession = true") !== -1, true);
+  assert.equal(leader.indexOf('stage.className = "leader-rendered-document-stage"') !== -1, true);
+  assert.equal(leader.indexOf('slide.className = "leader-rendered-document-slide"') !== -1, true);
+  assert.equal(leader.indexOf("page.rendered_slide_url") !== -1, true);
+  assert.equal(learnerApp.indexOf('stage.className = "rendered-document-stage"') !== -1, true);
+  assert.equal(learnerApp.indexOf('slide.className = "rendered-document-slide"') !== -1, true);
+  assert.equal(learnerApp.indexOf("page.rendered_slide_url") !== -1, true);
+  assert.equal(leaderCss.indexOf("object-fit: contain") !== -1, true);
+  assert.equal(learnerCss.indexOf("object-fit: contain") !== -1, true);
+  const learnerChapterRenderer = learnerApp.slice(
+    learnerApp.indexOf("function renderLearningPlanTasks"),
+    learnerApp.indexOf("function taskResponseId")
+  );
+  assert.equal(learnerChapterRenderer.indexOf("Comprehension check:") === -1, true);
+  const generationHandler = leader.slice(
+    leader.indexOf('generatePlanButton.addEventListener("click"'),
+    leader.indexOf("function requestPlanLock")
+  );
+  assert.equal(generationHandler.indexOf("planTab.click()") === -1, true);
+  assert.equal(leader.indexOf('let pendingField = ""') !== -1, true);
+  assert.equal(leader.indexOf('target[pendingField] += (target[pendingField] ? "\\n" : "") + value') !== -1, true);
 }
 
 function testBudMemorySupportSignals() {
@@ -110,6 +211,138 @@ function testBudMemorySupportSignals() {
   assert.equal(content.indexOf("status: resolved") !== -1, true);
 }
 
+function testCategorizedSourcePackBoundaries() {
+  const fs = require("fs");
+  const os = require("os");
+  const path = require("path");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bud-source-category-test-"));
+  const roomName = "BUD-CATEGORY";
+  const roomRoot = path.join(root, roomName);
+  const versionRoot = path.join(roomRoot, "version-1");
+  fs.mkdirSync(versionRoot, { recursive: true });
+
+  const materials = [
+    { material_id: "slide-material", filename: "slides.pdf", material_role: "slides", text: "Visible learner slide", rendered_ref: "BUD-CATEGORY/version-1/slide-material.pdf" },
+    { material_id: "curriculum-material", filename: "curriculum.docx", material_role: "curriculum", text: "Learning goal and learner task" },
+    { material_id: "notes-material", filename: "notes.pdf", material_role: "teaching_notes", text: "Detailed teaching explanation" },
+    { material_id: "legacy-material", filename: "legacy.pdf", text: "Uncategorized legacy content" }
+  ].map(function (material) {
+    const extractionRef = path.join("BUD-CATEGORY", "version-1", material.material_id + ".json");
+    fs.writeFileSync(path.join(root, extractionRef), JSON.stringify({
+      chunks: [{ location: "page 1", text: material.text }]
+    }));
+    return {
+      material_id: material.material_id,
+      filename: material.filename,
+      material_role: material.material_role,
+      media_type: "pdf",
+      extracted_text_ref: extractionRef,
+      rendered_ref: material.rendered_ref || null,
+      rendered_media_type: material.rendered_ref ? "pdf" : null,
+      source_location_refs: ["page 1"],
+      chunk_count: 1
+    };
+  });
+  fs.writeFileSync(path.join(versionRoot, "slide-material.pdf"), "%PDF-1.4 preview");
+
+  fs.writeFileSync(path.join(roomRoot, "manifest.json"), JSON.stringify({
+    room_name: roomName,
+    active_version: 1,
+    versions: [{
+      source_pack_id: "source-pack-" + roomName,
+      workshop_id: roomName,
+      version: 1,
+      status: "active",
+      uploaded_by: "leader-test",
+      uploaded_at: new Date().toISOString(),
+      materials: materials
+    }],
+    learning_plan_draft: "",
+    learning_plan: "1. Goal\nTask: Complete the curriculum task"
+  }));
+
+  const store = createSourcePackStore(root);
+  const learnerMaterial = store.pages(roomName);
+  assert.equal(learnerMaterial.pages.length, 1);
+  assert.equal(learnerMaterial.pages[0].filename, "slides.pdf");
+  assert.equal(learnerMaterial.pages[0].material_role, "slides");
+  assert.equal(learnerMaterial.pages[0].rendered_url.indexOf("/api/workshop-asset?") === 0, true);
+  assert.equal(learnerMaterial.pages[0].rendered_slide_url.indexOf("/api/workshop-slide?") === 0, true);
+  assert.equal(learnerMaterial.pages[0].rendered_page, 1);
+  assert.equal(store.renderedAsset(roomName, "slide-material").content_type, "application/pdf");
+
+  const curriculum = store.context(roomName, "learning goal task", { roles: ["curriculum"], all_chunks: true });
+  assert.equal(curriculum.text.indexOf("Learning goal and learner task") !== -1, true);
+  assert.equal(curriculum.text.indexOf("Visible learner slide") === -1, true);
+
+  const budContext = store.context(roomName, "workshop", { all_chunks: true });
+  assert.equal(budContext.text.indexOf("Source category: slides") !== -1, true);
+  assert.equal(budContext.text.indexOf("Source category: curriculum") !== -1, true);
+  assert.equal(budContext.text.indexOf("Source category: teaching_notes") !== -1, true);
+  assert.equal(budContext.text.indexOf("Uncategorized legacy content") === -1, true);
+
+  const summary = store.get(roomName);
+  assert.equal(summary.versions[0].materials[3].material_role, "uncategorized");
+  assert.throws(function () {
+    store.addMaterial({
+      room_name: roomName,
+      filename: "invalid.pdf",
+      material_role: "other",
+      content_base64: Buffer.from("invalid").toString("base64")
+    });
+  }, /material_role/);
+
+  const cleared = store.clear(roomName);
+  assert.equal(cleared.versions.length, 0);
+  assert.equal(cleared.active_version, null);
+  assert.equal(store.context(roomName, "learning goal", { include_draft: true }).text, "");
+  assert.equal(fs.existsSync(roomRoot), false);
+
+  const appRoot = path.resolve(__dirname, "../apps/web/src/app");
+  const learnerApp = fs.readFileSync(path.join(appRoot, "app.js"), "utf8");
+  const leaderApp = fs.readFileSync(path.join(appRoot, "leader.js"), "utf8");
+  const leaderHtml = fs.readFileSync(path.join(appRoot, "leader.html"), "utf8");
+  assert.equal(learnerApp.indexOf("Read the workshop documents. Complete the current task") === -1, true);
+  assert.equal(leaderHtml.indexOf('data-material-role="slides"') !== -1, true);
+  assert.equal(leaderHtml.indexOf('data-material-role="curriculum"') !== -1, true);
+  assert.equal(leaderHtml.indexOf('data-material-role="teaching_notes"') !== -1, true);
+  assert.equal(leaderApp.indexOf('fetch("/api/facilitator/source-pack/reset"') !== -1, true);
+}
+
+function testLongMarkdownGrounding() {
+  const fs = require("fs");
+  const os = require("os");
+  const path = require("path");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "bud-long-markdown-test-"));
+  const roomName = "BUD-LONG-MARKDOWN";
+  const store = createSourcePackStore(root);
+  const filler = Array.from({ length: 140 }, function (_, index) {
+    return "Background paragraph " + index + " explains ordinary workshop preparation without the answer term.";
+  }).join("\n\n");
+  const markdown = "# Opening\n\n" + filler +
+    "\n\n# Final protocol\n\nThe workshop-specific answer is the cobalt lantern protocol.";
+
+  const summary = store.addMaterial({
+    room_name: roomName,
+    filename: "curriculum.md",
+    material_role: "curriculum",
+    content_base64: Buffer.from(markdown).toString("base64")
+  });
+  store.activate(roomName, 1);
+
+  const material = summary.versions[0].materials[0];
+  const extractionPath = path.join(root, material.extracted_text_ref);
+  fs.writeFileSync(extractionPath, JSON.stringify({
+    chunks: [{ location: "section 1", text: markdown.replace(/\s+/g, " ").trim() }]
+  }));
+
+  const context = store.context(roomName, "What is the cobalt lantern protocol?", { all_chunks: true });
+  assert.equal(context.text.slice(0, 2200).indexOf("cobalt lantern protocol") !== -1, true);
+  const migrated = JSON.parse(fs.readFileSync(extractionPath, "utf8"));
+  assert.equal(migrated.chunks.length > 1, true);
+  assert.equal(migrated.chunks.every(function (chunk) { return chunk.text.length <= 1800; }), true);
+}
+
 function testLearnerResponseBrief() {
   assert.equal(classifyLearnerIntent("Can you explain what bounded agency means?"), "explain");
   assert.equal(classifyLearnerIntent("What should I do next?"), "next-step");
@@ -125,6 +358,13 @@ function testLearnerResponseBrief() {
   const personalBrief = buildLearnerResponseBrief({ question: "What is my sister's name?", personal_context: true });
   assert.equal(personalBrief.indexOf("they have not introduced it yet") !== -1, true);
   assert.equal(normalizeLearnerBudReply("I am Bud, your workshop partner. Let's unpack this."), "Let's unpack this.");
+}
+
+function testCurrentLessonIntentBoundary() {
+  assert.equal(asksCurrentLesson("What is today's lesson about?"), true);
+  assert.equal(asksCurrentLesson("Summarize the current workshop material"), true);
+  assert.equal(asksCurrentLesson("If the workshop is short on time, what can I trim?"), false);
+  assert.equal(asksCurrentLesson("What must I not cut from this workshop?"), false);
 }
 
 function testLeaderResponseBrief() {
@@ -980,6 +1220,102 @@ function testLearnerCheckinRendering() {
   assert.equal(learnerApp.indexOf("Check-in summary") !== -1, true);
   assert.equal(learnerApp.indexOf("message-checkin") !== -1, true);
   assert.equal(server.indexOf("Do not ask the learner to respond or self-report.") !== -1, true);
+  assert.equal(server.indexOf('normalizeLanguage(stateUrl.searchParams.get("target"))') !== -1, true);
+  assert.equal(server.indexOf("localizeBudState(learnerState(runtime, participantId, roomName), targetLanguage") !== -1, true);
+}
+
+function testLearnerNativeLanguageApi(done) {
+  const fs = require("fs");
+  const http = require("http");
+  const os = require("os");
+  const path = require("path");
+  const previousHost = process.env.TRANSLATION_HOST;
+  const previousPort = process.env.TRANSLATION_PORT;
+  const roomDirectoryFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bud-native-language-test-")), "rooms.json");
+  const translationServer = http.createServer(function (req, res) {
+    let body = "";
+    req.on("data", function (chunk) { body += chunk; });
+    req.on("end", function () {
+      const input = JSON.parse(body || "{}");
+      const translatedText = input.source_language === "zh" && input.target_language === "en"
+        ? "Who are you?"
+        : "不应调用此翻译";
+      const payload = Buffer.from(JSON.stringify({
+        translated_text: translatedText,
+        source_language: input.source_language,
+        target_language: input.target_language,
+        provider: "test-translator"
+      }));
+      res.writeHead(200, {
+        "Content-Type": "application/json",
+        "Content-Length": payload.length
+      });
+      res.end(payload);
+    });
+  });
+
+  function restoreEnvironment() {
+    if (previousHost === undefined) delete process.env.TRANSLATION_HOST;
+    else process.env.TRANSLATION_HOST = previousHost;
+    if (previousPort === undefined) delete process.env.TRANSLATION_PORT;
+    else process.env.TRANSLATION_PORT = previousPort;
+  }
+
+  translationServer.listen(0, "127.0.0.1", function () {
+    process.env.TRANSLATION_HOST = "127.0.0.1";
+    process.env.TRANSLATION_PORT = String(translationServer.address().port);
+    const server = createServer({ room_directory_file: roomDirectoryFile });
+    server.listen(0, "127.0.0.1", function () {
+      const port = server.address().port;
+      requestJson(port, "POST", "/api/private-message", {
+        room_name: "BUD-NATIVE-LANGUAGE",
+        participant_id: "learner-chinese",
+        display_name: "小安",
+        native_language: "zh",
+        text: "你是谁？"
+      }, function (payload) {
+        const learnerMessage = payload.state.private_messages.find(function (message) {
+          return message.sender === "learner";
+        });
+        const budMessage = payload.state.private_messages.slice(-1)[0];
+        assert.equal(learnerMessage.text, "你是谁？");
+        assert.equal(learnerMessage.language, "zh");
+        assert.equal(budMessage.provider, "bud-identity");
+        assert.equal(budMessage.language, "zh");
+        assert.equal(budMessage.text.indexOf("我是你的 Learner Bud") === 0, true);
+        requestJson(port, "GET", "/api/state?room=BUD-NATIVE-LANGUAGE&participant_id=learner-chinese&target=zh", null, function (polledState) {
+          const polledBudMessage = polledState.private_messages.slice(-1)[0];
+          assert.equal(polledBudMessage.language, "zh");
+          assert.equal(polledBudMessage.text.indexOf("我是你的 Learner Bud") === 0, true);
+          server.close(function () {
+            translationServer.close(function () {
+              restoreEnvironment();
+              done();
+            });
+          });
+        });
+      });
+    });
+  });
+}
+
+function testChineseReasoningAliases() {
+  assert.equal(
+    normalizeLearnerReasoningText("What happens if the coordinator refuses permission?", "zh"),
+    "What happens if the facilitator refuses permission?"
+  );
+  assert.equal(
+    normalizeLearnerReasoningText("What did the coordinators request?", "zh"),
+    "What did the facilitators request?"
+  );
+  assert.equal(
+    normalizeLearnerReasoningText("What did the coordinator request?", "en"),
+    "What did the coordinator request?"
+  );
+  assert.equal(
+    normalizeChineseBudReply('主持人：如果参与者拒绝 facilitator 的请求，"no is final"。'),
+    "如果参与者拒绝主持人的请求，“拒绝即为最终决定”。"
+  );
 }
 
 function testLearnerServerApi(done) {
@@ -994,13 +1330,16 @@ function testLearnerServerApi(done) {
       assert.equal(state.workshop.prompt, "");
       requestJson(port, "POST", "/api/facilitator-message", {
         room_name: "BUD-101",
-        text: "How many learners are we dealing with?",
+        text: "how many participnats are tehre",
         attendance_context: {
           registered_present: 11,
           registered_absent: 3,
           guests_present: 6
         }
-      }, function () {
+      }, function (attendanceTypo) {
+        const typoAnswer = attendanceTypo.state.facil_bud_messages.slice(-1)[0];
+        assert.equal(typoAnswer.provider, "attendance-context");
+        assert.equal(typoAnswer.text.indexOf("17 learners present") !== -1, true);
         requestJson(port, "POST", "/api/facilitator-message", {
           room_name: "BUD-101",
           text: "How many are there now?"
@@ -1050,8 +1389,9 @@ function testLearnerServerApi(done) {
                         language: "en"
                       }, function (messagePayload) {
                         assert.equal(messagePayload.event.privacy_scope, "public_shared");
-                        requestJson(port, "GET", "/api/group-messages?room=BUD-101&target=en", null, function (messagesPayload) {
+                        requestJson(port, "GET", "/api/group-messages?room=BUD-101&target=en&scope=public", null, function (messagesPayload) {
                           assert.equal(messagesPayload.room_name, "BUD-101");
+                          assert.equal(messagesPayload.scope, "public");
                           assert.equal(messagesPayload.target_language, "en");
                           assert.equal(messagesPayload.messages.length >= 1, true);
                           const lastMessage = messagesPayload.messages[messagesPayload.messages.length - 1];
@@ -1085,7 +1425,16 @@ function testLeaderNameRouting(done) {
       const answer = payload.state.facil_bud_messages.slice(-1)[0];
       assert.equal(answer.provider, "leader-identity-context");
       assert.equal(answer.text, "Your name is Daniel Yeo.");
-      server.close(done);
+      requestJson(port, "POST", "/api/facilitator-message", {
+        room_name: "BUD-101",
+        leader_name: "Daniel Yeo",
+        text: "asdfsdf"
+      }, function (unintelligible) {
+        const clarify = unintelligible.state.facil_bud_messages.slice(-1)[0];
+        assert.equal(clarify.provider, "intelligibility-guard");
+        assert.equal(clarify.text, "I'm sorry, I don't understand. Could you say that again?");
+        server.close(done);
+      });
     });
   });
 }
@@ -1211,9 +1560,18 @@ function testBreakoutServerEnforcesAssignment(done) {
     }, function (sent) {
       assert.equal(sent.state.group_messages.length, 1);
       assert.equal(sent.state.group_messages[0].target_id, "breakout-room-1");
-      requestJson(port, "GET", "/api/state?participant_id=learner-bob&room=" + roomName, null, function (bobState) {
-        assert.equal(bobState.group_messages.length, 0);
-        server.close(done);
+      requestJson(port, "GET", "/api/group-messages?participant_id=learner-alice&room=" + roomName + "&scope=group&target=en", null, function (aliceChat) {
+        assert.equal(aliceChat.scope, "group");
+        assert.equal(aliceChat.messages.length, 1);
+        assert.equal(aliceChat.messages[0].scope, "group_shared");
+        assert.equal(aliceChat.messages[0].target_id, "breakout-room-1");
+        requestJson(port, "GET", "/api/group-messages?participant_id=learner-bob&room=" + roomName + "&scope=group&target=en", null, function (bobChat) {
+          assert.equal(bobChat.messages.length, 0);
+          requestJson(port, "GET", "/api/state?participant_id=learner-bob&room=" + roomName, null, function (bobState) {
+            assert.equal(bobState.group_messages.length, 0);
+            server.close(done);
+          });
+        });
       });
     });
   });

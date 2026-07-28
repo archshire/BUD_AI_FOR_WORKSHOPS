@@ -44,6 +44,8 @@
   let publicCaptionFeed = null;
   let breakoutCaptionFeed = null;
   const activationKey = "bud-learner-activated-" + participantId;
+  const nativeLanguageStorageKey = "bud-learner-native-language-" + participantId;
+  const storedNativeLanguage = window.sessionStorage.getItem(nativeLanguageStorageKey);
   let setupMicReady = false;
   let setupDocsReady = false;
   const runtimeRoomInput = document.querySelector("#room-input");
@@ -75,11 +77,19 @@
   }
 
   if (setupNativeLanguage && mainNativeLanguage) {
+    if (storedNativeLanguage && setupNativeLanguage.querySelector('option[value="' + storedNativeLanguage + '"]')) {
+      setupNativeLanguage.value = storedNativeLanguage;
+    }
     setupNativeLanguage.addEventListener("change", function () {
       mainNativeLanguage.value = setupNativeLanguage.value;
+      window.sessionStorage.setItem(nativeLanguageStorageKey, setupNativeLanguage.value);
       replayCaptionFeeds();
     });
     mainNativeLanguage.value = setupNativeLanguage.value;
+    window.sessionStorage.setItem(nativeLanguageStorageKey, mainNativeLanguage.value);
+    mainNativeLanguage.addEventListener("change", function () {
+      window.sessionStorage.setItem(nativeLanguageStorageKey, mainNativeLanguage.value);
+    });
   }
   if (setupPrivacy) setupPrivacy.addEventListener("change", updateSetupGate);
   if (setupConnectMic) setupConnectMic.addEventListener("click", function () {
@@ -151,11 +161,19 @@
     window.learnerBudGreeting = {
       message_id: "learner-bud-greeting",
       sender: "bud",
-      text: "Hi " + displayName + ", I am your AI Bud. I am here to support your learning, help you understand the workshop material, and stay with you as you make progress. I hope you have a meaningful time of learning :)",
+      text: learnerBudGreeting(mainNativeLanguage && mainNativeLanguage.value || "en", displayName),
+      language: mainNativeLanguage && mainNativeLanguage.value || "en",
       created_at: new Date().toISOString()
     };
     if (activation) activation.hidden = true;
-    showTab("bud");
+    showTab("workshop");
+  }
+
+  function learnerBudGreeting(language, name) {
+    if (language === "zh") {
+      return "你好，" + name + "！我是你的 AI Bud。我会支持你的学习、帮助你理解工作坊材料，并在你学习的过程中一直陪伴你。希望你有一段充实而有意义的学习时光 :)";
+    }
+    return "Hi " + name + ", I am your AI Bud. I am here to support your learning, help you understand the workshop material, and stay with you as you make progress. I hope you have a meaningful time of learning :)";
   }
 
   function updateNavigationLock() {
@@ -172,7 +190,7 @@
 
   function showTab(tab) {
     if (tab === "dm") tab = "breakout";
-    if (tab === "bud" && window.sessionStorage.getItem(activationKey) !== "1") tab = "setup";
+    if (tab === "bud") tab = "workshop";
     tabs.forEach(function (item) {
       const active = item.dataset.learnerTab === tab;
       item.classList.toggle("is-active", active);
@@ -195,7 +213,6 @@
       breakoutView.hidden = false;
       refreshBreakout();
     }
-    if (tab === "bud") document.querySelector(".bud-panel").scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
   tabs.forEach(function (tab) {
@@ -219,10 +236,19 @@
       const sender = document.createElement("strong");
       sender.textContent = item.sender_id === participantId
         ? "You"
-        : (item.sender_display_name || breakoutMemberNames[item.sender_id] || item.sender_id || "Room participant");
-      const text = document.createElement("p");
-      text.textContent = item.text;
-      card.append(sender, text);
+        : (item.display_name || item.sender_display_name || breakoutMemberNames[item.sender_id] || item.sender_id || "Room participant");
+      const original = document.createElement("p");
+      original.className = "breakout-message-original";
+      original.lang = item.original_language || item.language || "";
+      original.textContent = item.original_text || item.text || "";
+      card.append(sender, original);
+      if (item.translated_text) {
+        const translated = document.createElement("p");
+        translated.className = "breakout-message-translated";
+        translated.lang = item.target_language || "";
+        translated.textContent = item.translated_text;
+        card.appendChild(translated);
+      }
       messages.appendChild(card);
     });
     messages.scrollTop = messages.scrollHeight;
@@ -231,10 +257,12 @@
   function refreshBreakout() {
     Promise.all([
       fetch("/api/facilitator/rooms").then(function (response) { return response.json(); }),
-      fetch("/api/state?participant_id=" + encodeURIComponent(participantId) + "&room=" + encodeURIComponent(query.get("room") || "BUD-101")).then(function (response) { return response.json(); })
+      fetch("/api/group-messages?participant_id=" + encodeURIComponent(participantId) +
+        "&room=" + encodeURIComponent(query.get("room") || "BUD-101") +
+        "&scope=group&target=" + encodeURIComponent(learnerLanguage())).then(function (response) { return response.json(); })
     ]).then(function (results) {
       const rooms = results[0].rooms || [];
-      const state = results[1];
+      const chat = results[1];
       let allocation = null;
       // Guest display names can recur across sessions. Always resolve the
       // current participant ID before using a name-only legacy fallback.
@@ -281,9 +309,7 @@
         lastCaptionBreakoutGroupId = breakoutGroupId;
         if (breakoutCaptionFeed) breakoutCaptionFeed.replay();
       }
-      renderMessages((state.group_messages || []).filter(function (item) {
-        return !item.target_id || item.target_id === breakoutGroupId;
-      }));
+      renderMessages(chat.messages || []);
     }).catch(function () {
       roomStatus.textContent = "Room status unavailable";
     });

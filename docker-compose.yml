@@ -61,7 +61,7 @@ services:
     volumes:
       - ${QWEN_MODEL_MOUNT:-qwen-models}:/models/qwen
     healthcheck:
-      test: ["CMD-SHELL", "curl -s -o /dev/null http://127.0.0.1:8790/ || exit 1"]
+      test: ["CMD-SHELL", "curl -fsS -o /dev/null http://127.0.0.1:8790/health"]
       interval: 10s
       timeout: 5s
       retries: 3

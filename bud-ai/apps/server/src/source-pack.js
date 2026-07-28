@@ -5,13 +5,21 @@ const crypto = require("crypto");
 const childProcess = require("child_process");
 
 const MAX_FILE_BYTES = 15 * 1024 * 1024;
+const MAX_CONTEXT_CHUNK_CHARS = 1800;
 const SUPPORTED_TYPES = {
   ".pptx": "pptx",
   ".pdf": "pdf",
   ".docx": "docx",
+  ".md": "markdown",
   ".google-slides.pdf": "google_slides_export",
   ".google-slides.pptx": "google_slides_export"
 };
+const MATERIAL_ROLES = {
+  slides: "slides",
+  curriculum: "curriculum",
+  teaching_notes: "teaching_notes"
+};
+const CONTEXT_ROLES = Object.keys(MATERIAL_ROLES);
 
 function createSourcePackStore(rootDirectory) {
   let root = path.resolve(rootDirectory || process.env.SOURCE_PACK_ROOT || path.resolve(process.cwd(), "data/source-packs"));
@@ -49,8 +57,12 @@ function createSourcePackStore(rootDirectory) {
     const filename = path.basename(String(input.filename || "").trim());
     const extension = extensionFor(filename);
     const type = SUPPORTED_TYPES[extension];
+    const materialRole = normalizeMaterialRole(input.material_role);
     if (!roomName || !filename || !type) {
-      throw new Error("Supported source files are .pptx, .pdf, and .docx");
+      throw new Error("Supported source files are .pptx, .pdf, .docx, and .md");
+    }
+    if (!materialRole) {
+      throw new Error("material_role must be slides, curriculum, or teaching_notes");
     }
     const content = Buffer.from(String(input.content_base64 || ""), "base64");
     if (!content.length || content.length > MAX_FILE_BYTES) {
@@ -72,13 +84,17 @@ function createSourcePackStore(rootDirectory) {
     const extracted = extractMaterial(storedPath, type);
     const textPath = path.join(versionDirectory, materialId + ".json");
     fs.writeFileSync(textPath, JSON.stringify(extracted, null, 2));
+    const renderedPath = createRenderedPreview(storedPath, versionDirectory);
 
     const material = {
       material_id: materialId,
       filename: filename,
+      material_role: materialRole,
       media_type: type,
       size_bytes: content.length,
       extracted_text_ref: path.relative(root, textPath),
+      rendered_ref: renderedPath ? path.relative(root, renderedPath) : null,
+      rendered_media_type: renderedPath ? "pdf" : null,
       source_location_refs: extracted.chunks.map(function (chunk) { return chunk.location; }),
       chunk_count: extracted.chunks.length
     };
@@ -112,6 +128,11 @@ function createSourcePackStore(rootDirectory) {
     return summarizeManifest(readManifest(roomName));
   }
 
+  function clear(roomName) {
+    fs.rmSync(roomDirectory(roomName), { recursive: true, force: true });
+    return summarizeManifest(readManifest(roomName));
+  }
+
   function setLearningPlan(roomName, plan, draft) {
     const manifest = readManifest(roomName);
     manifest.learning_plan_draft = draft ? String(plan || "").trim() : manifest.learning_plan_draft || "";
@@ -125,12 +146,14 @@ function createSourcePackStore(rootDirectory) {
     return { draft: manifest.learning_plan_draft || "", locked: manifest.learning_plan || "" };
   }
 
-  function pages(roomName) {
+  function pages(roomName, options) {
     const manifest = readManifest(roomName);
     const active = manifest.versions.find(function (version) { return version.version === manifest.active_version; });
     if (!active) return { version: null, pages: [], learning_plan: manifest.learning_plan || "" };
+    const roles = requestedRoles(options, ["slides"]);
     const result = [];
     active.materials.forEach(function (material) {
+      if (roles.indexOf(materialRole(material)) === -1) return;
       const extractedPath = path.join(root, material.extracted_text_ref);
       try {
         const extracted = enrichedExtraction(material, extractedPath);
@@ -138,9 +161,20 @@ function createSourcePackStore(rootDirectory) {
           result.push({
             page_id: material.material_id + "-" + index,
             filename: material.filename,
+            material_role: materialRole(material),
             location: chunk.location,
             text: chunk.text,
-            blocks: chunk.blocks || null
+            blocks: chunk.blocks || null,
+            media_type: material.media_type,
+            rendered_url: renderableMaterial(material)
+              ? "/api/workshop-asset?room=" + encodeURIComponent(roomName) + "&material_id=" + encodeURIComponent(material.material_id)
+              : null,
+            rendered_slide_url: renderableMaterial(material)
+              ? "/api/workshop-slide?room=" + encodeURIComponent(roomName) +
+                "&material_id=" + encodeURIComponent(material.material_id) +
+                "&page=" + (index + 1)
+              : null,
+            rendered_page: index + 1
           });
         });
       } catch (error) {
@@ -158,15 +192,25 @@ function createSourcePackStore(rootDirectory) {
       : manifest.versions.find(function (version) { return version.version === manifest.active_version; });
     if (!active) return { version: null, chunks: [], text: "" };
     const allChunks = [];
+    const roles = requestedRoles(options, CONTEXT_ROLES);
+    const matchingMaterials = active.materials.filter(function (material) {
+      return roles.indexOf(materialRole(material)) !== -1;
+    });
     const materials = options && options.latest_material_only
-      ? active.materials.slice(-1)
-      : active.materials;
+      ? matchingMaterials.slice(-1)
+      : matchingMaterials;
     materials.forEach(function (material) {
       const extractedPath = path.join(root, material.extracted_text_ref);
       try {
-        const extracted = JSON.parse(fs.readFileSync(extractedPath, "utf8"));
+        const extracted = enrichedExtraction(material, extractedPath);
         extracted.chunks.forEach(function (chunk) {
-          allChunks.push({ filename: material.filename, material_id: material.material_id, location: chunk.location, text: chunk.text });
+          allChunks.push({
+            filename: material.filename,
+            material_id: material.material_id,
+            material_role: materialRole(material),
+            location: chunk.location,
+            text: chunk.text
+          });
         });
       } catch (error) {
         // A missing extracted artifact is treated as unavailable context.
@@ -181,23 +225,88 @@ function createSourcePackStore(rootDirectory) {
     return {
       version: active.version,
       chunks: fallback.map(function (chunk) {
-        return { source: chunk.filename + " / " + chunk.location, text: chunk.text };
+        return {
+          source: "[" + chunk.material_role + "] " + chunk.filename + " / " + chunk.location,
+          material_role: chunk.material_role,
+          text: chunk.text
+        };
       }),
-      text: fallback.map(function (chunk) { return "[Source: " + chunk.filename + " / " + chunk.location + "]\n" + chunk.text; }).join("\n\n")
+      text: fallback.map(function (chunk) {
+        return "[Source category: " + chunk.material_role + "]\n[Source: " + chunk.filename + " / " + chunk.location + "]\n" + chunk.text;
+      }).join("\n\n")
     };
   }
 
-  return { addMaterial, activate, get, pages, context, setLearningPlan, learningPlan, root };
+  function renderedAsset(roomName, materialId) {
+    const manifest = readManifest(roomName);
+    const active = manifest.versions.find(function (version) { return version.version === manifest.active_version; });
+    if (!active) return null;
+    const material = active.materials.find(function (candidate) {
+      return candidate.material_id === materialId && materialRole(candidate) === "slides" && renderableMaterial(candidate);
+    });
+    if (!material) return null;
+    let renderedPath = material.rendered_ref ? path.resolve(root, material.rendered_ref) : "";
+    if (!renderedPath || !fs.existsSync(renderedPath)) {
+      const extractionPath = path.resolve(root, material.extracted_text_ref);
+      const sourcePath = path.join(path.dirname(extractionPath), material.material_id + extensionFor(material.filename));
+      renderedPath = createRenderedPreview(sourcePath, path.dirname(extractionPath));
+      if (!renderedPath) return null;
+      material.rendered_ref = path.relative(root, renderedPath);
+      material.rendered_media_type = "pdf";
+      writeManifest(roomName, manifest);
+    }
+    const safePath = path.resolve(renderedPath);
+    if (safePath.indexOf(root + path.sep) !== 0 || !fs.existsSync(safePath)) return null;
+    return { file_path: safePath, content_type: "application/pdf" };
+  }
+
+  function renderedSlide(roomName, materialId, pageNumber) {
+    const page = Number(pageNumber);
+    if (!Number.isInteger(page) || page < 1 || page > 500) return null;
+    const asset = renderedAsset(roomName, materialId);
+    if (!asset || asset.content_type !== "application/pdf") return null;
+
+    const previewDirectory = path.join(path.dirname(asset.file_path), ".slide-previews");
+    const safeMaterialId = String(materialId || "slide").replace(/[^a-zA-Z0-9_-]/g, "_");
+    const outputPrefix = path.join(previewDirectory, safeMaterialId + "-page-" + page);
+    const outputPath = outputPrefix + ".png";
+    try {
+      fs.mkdirSync(previewDirectory, { recursive: true });
+      if (!fs.existsSync(outputPath)) {
+        childProcess.execFileSync("pdftoppm", [
+          "-f", String(page),
+          "-l", String(page),
+          "-singlefile",
+          "-png",
+          "-scale-to-x", "1600",
+          "-scale-to-y", "-1",
+          asset.file_path,
+          outputPrefix
+        ], { timeout: 60000, maxBuffer: 1024 * 1024 });
+      }
+    } catch (error) {
+      return null;
+    }
+    return fs.existsSync(outputPath)
+      ? { file_path: outputPath, content_type: "image/png" }
+      : null;
+  }
+
+  return { addMaterial, activate, get, clear, pages, context, setLearningPlan, learningPlan, renderedAsset, renderedSlide, root };
 }
 
 function enrichedExtraction(material, extractedPath) {
   const extracted = JSON.parse(fs.readFileSync(extractedPath, "utf8"));
-  if (material.media_type !== "docx" || extracted.chunks.some(function (chunk) { return Array.isArray(chunk.blocks); })) {
+  const needsDocxEnrichment = material.media_type === "docx" &&
+    !extracted.chunks.some(function (chunk) { return Array.isArray(chunk.blocks); });
+  const needsMarkdownChunking = material.media_type === "markdown" &&
+    extracted.chunks.some(function (chunk) { return String(chunk.text || "").length > MAX_CONTEXT_CHUNK_CHARS; });
+  if (!needsDocxEnrichment && !needsMarkdownChunking) {
     return extracted;
   }
-  const sourcePath = path.join(path.dirname(extractedPath), material.material_id + ".docx");
+  const sourcePath = path.join(path.dirname(extractedPath), material.material_id + extensionFor(material.filename));
   if (!fs.existsSync(sourcePath)) return extracted;
-  const enriched = extractMaterial(sourcePath, "docx");
+  const enriched = extractMaterial(sourcePath, material.media_type);
   fs.writeFileSync(extractedPath, JSON.stringify(enriched, null, 2));
   return enriched;
 }
@@ -210,7 +319,10 @@ function extensionFor(filename) {
 }
 
 function extractMaterial(filePath, type) {
-  if (type === "pdf" || type === "google_slides_export") {
+  if (type === "markdown") {
+    return { chunks: splitMarkdown(fs.readFileSync(filePath, "utf8")) };
+  }
+  if (type === "pdf" || (type === "google_slides_export" && /\.pdf$/i.test(filePath))) {
     const output = childProcess.execFileSync("pdftotext", ["-layout", filePath, "-"], { encoding: "utf8", maxBuffer: 4 * 1024 * 1024 });
     return { chunks: splitText(output, "page") };
   }
@@ -224,6 +336,34 @@ function extractMaterial(filePath, type) {
     return { location: "slide " + (index + 1), text: cleanXml(xml) };
   }).filter(function (chunk) { return chunk.text; });
   return { chunks: chunks.length ? chunks : [{ location: "document", text: "No extractable text found in this source file." }] };
+}
+
+function renderableMaterial(material) {
+  return /\.(pdf|pptx)$/i.test(String(material && material.filename || ""));
+}
+
+function createRenderedPreview(sourcePath, outputDirectory) {
+  if (/\.pdf$/i.test(sourcePath)) return sourcePath;
+  if (!/\.pptx$/i.test(sourcePath)) return null;
+  const expectedPath = sourcePath.replace(/\.pptx$/i, ".pdf");
+  const profileDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "bud-libreoffice-"));
+  try {
+    childProcess.execFileSync("libreoffice", [
+      "-env:UserInstallation=file://" + profileDirectory,
+      "--headless",
+      "--convert-to",
+      "pdf",
+      "--outdir",
+      outputDirectory,
+      sourcePath
+    ], { encoding: "utf8", timeout: 120000, maxBuffer: 1024 * 1024 });
+  } finally {
+    fs.rmSync(profileDirectory, { recursive: true, force: true });
+  }
+  if (!fs.existsSync(expectedPath)) {
+    throw new Error("Unable to render the PPTX workshop slides");
+  }
+  return expectedPath;
 }
 
 function listZipFiles(filePath) {
@@ -336,6 +476,65 @@ function splitText(text, label) {
   }).filter(function (chunk) { return chunk.text; });
 }
 
+function splitMarkdown(text) {
+  const sections = [];
+  let title = "Introduction";
+  let lines = [];
+
+  function commitSection() {
+    const body = lines.join("\n").trim();
+    if (!body) return;
+    const paragraphs = body.split(/\n\s*\n/).map(function (paragraph) {
+      return paragraph.replace(/\s+/g, " ").trim();
+    }).filter(Boolean);
+    let part = "";
+    let partNumber = 1;
+
+    function commitPart() {
+      if (!part) return;
+      sections.push({
+        location: "section " + (sections.length + 1) + ": " + title + (partNumber > 1 ? " (part " + partNumber + ")" : ""),
+        text: part
+      });
+      part = "";
+      partNumber += 1;
+    }
+
+    paragraphs.forEach(function (paragraph) {
+      if (paragraph.length > MAX_CONTEXT_CHUNK_CHARS) {
+        commitPart();
+        while (paragraph.length) {
+          let splitAt = Math.min(MAX_CONTEXT_CHUNK_CHARS, paragraph.length);
+          if (splitAt < paragraph.length) {
+            const whitespaceAt = paragraph.lastIndexOf(" ", splitAt);
+            if (whitespaceAt > MAX_CONTEXT_CHUNK_CHARS / 2) splitAt = whitespaceAt;
+          }
+          part = paragraph.slice(0, splitAt).trim();
+          paragraph = paragraph.slice(splitAt).trim();
+          commitPart();
+        }
+        return;
+      }
+      if (part && part.length + paragraph.length + 2 > MAX_CONTEXT_CHUNK_CHARS) commitPart();
+      part += (part ? "\n\n" : "") + paragraph;
+    });
+    commitPart();
+  }
+
+  String(text || "").replace(/\r/g, "").split("\n").forEach(function (line) {
+    const heading = line.match(/^#{1,6}\s+(.+?)\s*#*\s*$/);
+    if (heading) {
+      commitSection();
+      title = heading[1].trim();
+      lines = [line];
+      return;
+    }
+    lines.push(line);
+  });
+  commitSection();
+  return sections.length ? sections : [{ location: "section 1", text: String(text || "").replace(/\s+/g, " ").trim() }];
+}
+
 function decodeEntities(text) {
   return text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'");
 }
@@ -353,6 +552,20 @@ function naturalFileOrder(left, right) {
   return Number((left.match(/slide(\d+)/) || [0, 0])[1]) - Number((right.match(/slide(\d+)/) || [0, 0])[1]);
 }
 
+function normalizeMaterialRole(role) {
+  const normalized = String(role || "").trim().toLowerCase();
+  return MATERIAL_ROLES[normalized] || "";
+}
+
+function materialRole(material) {
+  return normalizeMaterialRole(material && material.material_role) || "uncategorized";
+}
+
+function requestedRoles(options, fallback) {
+  const requested = options && Array.isArray(options.roles) ? options.roles : fallback;
+  return requested.map(normalizeMaterialRole).filter(Boolean);
+}
+
 function summarizeManifest(manifest) {
   return {
     room_name: manifest.room_name,
@@ -364,10 +577,12 @@ function summarizeManifest(manifest) {
         status: version.status,
         uploaded_by: version.uploaded_by,
         uploaded_at: version.uploaded_at,
-        materials: version.materials
+        materials: version.materials.map(function (material) {
+          return Object.assign({}, material, { material_role: materialRole(material) });
+        })
       };
     })
   };
 }
 
-module.exports = { createSourcePackStore, MAX_FILE_BYTES };
+module.exports = { createSourcePackStore, MAX_FILE_BYTES, MAX_CONTEXT_CHUNK_CHARS, MATERIAL_ROLES };

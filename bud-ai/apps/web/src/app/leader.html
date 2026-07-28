@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>How to collaborate with BUD AI</title>
-    <link rel="stylesheet" href="/leader.css?v=22">
+    <link rel="stylesheet" href="/leader.css?v=launch-bud-fixed-chat-1">
   </head>
   <body>
     <main class="leader-shell">
@@ -13,17 +13,19 @@
         <div class="leader-sidebar">
         <nav aria-label="Leader workspace">
           <a class="active" href="#setup" aria-current="page"><span>SETUP<small>Prepare the workshop</small></span></a>
-          <a href="#rooms"><span>ROOM / PARTICIPANT MANAGEMENT<small>Open and allocate</small></span></a>
-          <a href="#source-pack"><span>WORKSHOP (LIVE)<small>Execute learning plan</small></span></a>
-          <a href="#insights"><span>Room insights<small>Read the room</small></span></a>
+          <a class="is-locked" href="#plan-view" aria-disabled="true"><span>LEARNING PLAN<small>Review and lock the plan</small></span></a>
+          <a class="is-locked" href="#rooms" aria-disabled="true"><span>ROOM / PARTICIPANT MANAGEMENT<small>Open and allocate</small></span></a>
+          <a class="is-locked" href="#launch-bud" aria-disabled="true"><span>LAUNCH BUD<small>Activate your partner</small></span></a>
+          <a class="is-locked" href="#source-pack" aria-disabled="true"><span>WORKSHOP (LIVE)<small>Execute learning plan</small></span></a>
+          <a class="is-locked" href="#insights" aria-disabled="true"><span>Room insights<small>Read the room</small></span></a>
         </nav>
-        </div>
         <aside id="leader-bud-panel" class="leader-bud-panel" hidden aria-labelledby="leader-bud-title">
           <div class="leader-bud-heading"><img src="/assets/facil-bud-owl.jpeg" alt="Owl profile for the Leader's Bud"><div><p class="eyebrow">PRIVATE PARTNER</p><h2 id="leader-bud-title">Leader's BUD</h2><span id="leader-bud-status" class="leader-bud-status"><i aria-hidden="true"></i> Online</span></div></div>
           <p id="leader-bud-thinking" class="leader-bud-thinking" role="status" aria-live="polite"><i aria-hidden="true"></i><span>Bud is here</span></p>
           <div id="leader-bud-messages" class="leader-bud-messages" aria-live="polite"></div>
           <form id="leader-bud-form" class="leader-bud-composer"><label for="leader-bud-input">Message your BUD</label><textarea id="leader-bud-input" rows="3" placeholder="Ask about your learners or workshop documents."></textarea><button class="primary-button" type="submit">Send</button></form>
         </aside>
+        </div>
         <section class="leader-main">
           <section id="setup" class="leader-section">
             <p class="eyebrow">SETUP</p><h2>Workshop preparation</h2>
@@ -40,19 +42,29 @@
             </div>
             <div id="learning-flow-box" class="learning-flow-box is-locked" aria-disabled="true">
               <p class="eyebrow">Learning plan</p><h2>Prepare the learning flow</h2>
-              <p>Upload the source material, define learner tasks, and lock the plan before participants can enter.</p>
-              <div class="leader-actions"><input id="source-file" class="visually-hidden" type="file" accept=".pptx,.pdf,.docx"><button id="upload-source-button" class="primary-button" type="button">Upload source material</button><button id="generate-plan-button" class="primary-button" type="button">Generate learning plan</button><span id="plan-timer" class="plan-timer" role="status" aria-live="polite" hidden>Elapsed 00:00</span><button id="save-plan-button" class="secondary-button" type="button" hidden>Save learning plan</button><button id="lock-plan-button" class="secondary-button" type="button" hidden><span aria-hidden="true">&#128275;</span> Lock learning plan</button></div>
+              <p>Upload each document to its intended category, define learner tasks, and lock the plan before participants can enter.</p>
+              <div class="source-category-list" aria-label="Workshop source categories">
+                <div class="source-category-row">
+                  <div><strong>Workshop slides</strong><small>Shown in the learner workshop document box and available to Bud.</small></div>
+                  <input id="source-file-slides" class="visually-hidden source-file" type="file" accept=".pptx,.pdf,.docx,.md" data-material-role="slides">
+                  <button class="primary-button upload-source-button" type="button" data-material-role="slides" data-file-input="source-file-slides">Upload slides</button>
+                </div>
+                <div class="source-category-row">
+                  <div><strong>Curriculum and learning goals</strong><small>Used to generate learner plan tasks and available to Bud.</small></div>
+                  <input id="source-file-curriculum" class="visually-hidden source-file" type="file" accept=".pptx,.pdf,.docx,.md" data-material-role="curriculum">
+                  <button class="primary-button upload-source-button" type="button" data-material-role="curriculum" data-file-input="source-file-curriculum">Upload curriculum</button>
+                </div>
+                <div class="source-category-row">
+                  <div><strong>Teaching notes and explanations</strong><small>Available to Bud for deeper explanations and never shown as workshop slides.</small></div>
+                  <input id="source-file-teaching-notes" class="visually-hidden source-file" type="file" accept=".pptx,.pdf,.docx,.md" data-material-role="teaching_notes">
+                  <button class="primary-button upload-source-button" type="button" data-material-role="teaching_notes" data-file-input="source-file-teaching-notes">Upload teaching notes</button>
+                </div>
+              </div>
+              <div id="source-material-list" class="source-material-list" aria-live="polite"></div>
+              <div class="leader-actions"><button id="generate-plan-button" class="primary-button" type="button">Generate learning plan</button><span id="plan-timer" class="plan-timer" role="status" aria-live="polite" hidden>Elapsed 00:00</span><button id="save-plan-button" class="secondary-button" type="button" hidden>Save learning plan</button><button id="lock-plan-button" class="secondary-button" type="button" hidden><span aria-hidden="true">&#128275;</span> Lock learning plan</button></div>
               <p id="source-status" class="inline-status" role="status"></p>
-              <p id="plan-lock-hint" class="plan-lock-hint" role="status" hidden><span aria-hidden="true">&#10132;</span> <strong>Edit and lock it before opening the room.</strong></p>
-              <textarea id="learning-plan-output" class="learning-plan-output" aria-label="Editable learning plan" hidden></textarea>
-              <div id="lock-confirmation" class="lock-confirmation" role="alertdialog" aria-labelledby="lock-confirmation-message" hidden><p id="lock-confirmation-message">This will be the learning plan for the workshop.</p><div class="leader-actions"><button id="confirm-lock-button" class="primary-button" type="button">Yes</button><button id="cancel-lock-button" class="secondary-button" type="button">No</button></div></div>
-            </div>
-            <div id="bud-config-box" class="bud-config-box is-locked" aria-disabled="true">
-              <div class="subsection-heading"><div><p class="eyebrow">Third, activate your partner</p><h3>BUD CONFIG</h3></div><span id="bud-config-status" class="status-badge">Setup incomplete</span></div>
-              <p class="setup-note">Choose the Leader's native language so transcription and translation can focus on the expected language. Then launch Bud to check that the private chat is working.</p>
-              <label for="leader-native-language">Leader native language<select id="leader-native-language" disabled><option value="">Choose a language</option><option value="en">English</option><option value="zh">Chinese (Simplified)</option><option value="fr">French</option><option value="my">Burmese</option><option value="th">Thai</option><option value="ms">Malay</option></select></label>
-              <button id="launch-leader-bud" class="primary-button" type="button" disabled>Launch Bud</button>
-              <p id="bud-config-status-text" class="inline-status" role="status"></p>
+              <p id="plan-lock-hint" class="plan-lock-hint" role="status" hidden><span aria-hidden="true">&#10132;</span> <strong>Review the task cards in Full workshop plan, then lock them before opening the room.</strong></p>
+              <textarea id="learning-plan-output" class="learning-plan-output" aria-label="Learning plan data" hidden></textarea>
             </div>
           </section>
           <section id="rooms" class="leader-section" hidden>
@@ -71,13 +83,67 @@
               <div id="breakout-rooms" class="breakout-rooms"><p class="inline-status">Choose Random or Manual to arrange the participants in attendance.</p></div>
             </section>
           </section>
-          <section id="source-pack" class="leader-section" hidden><p class="eyebrow">Workshop (Live)</p><h2>Execute Learning Plan</h2><div id="live-plan-panel" class="live-plan-panel" hidden><div class="subsection-heading"><div><p class="eyebrow">Locked workshop plan</p><h3>Leader-approved learning flow</h3></div><span class="status-badge">Ready for the room</span></div><pre id="live-learning-plan" class="live-learning-plan"></pre></div><p id="live-plan-empty" class="inline-status">Open the prepared room to view the locked learning plan.</p><section class="room-management-section live-chat-section public-chat-view" aria-labelledby="room-chat-title"><div class="subsection-heading"><div><p class="eyebrow">Public chat room</p><h3 id="room-chat-title">Workshop Chat</h3></div><span class="status-badge">Visible to everyone</span></div><div class="leader-public-chat-room"><section class="captions leader-captions" aria-labelledby="leader-public-captions-title"><div class="subsection-heading"><div><p class="eyebrow">Live translation</p><h3 id="leader-public-captions-title">Main room captions</h3></div><button id="clear-room-captions" class="secondary-button" type="button">Clear</button></div><div id="room-caption-list" class="caption-list" aria-live="polite" aria-atomic="false"><p class="empty">Captions will appear when someone speaks in the workshop.</p></div></section><div id="room-chat-messages" class="leader-public-chat-messages" aria-live="polite"><p class="empty">No public messages yet.</p></div><form id="room-chat-form" class="leader-public-chat-composer"><label for="room-chat-input">Message the workshop</label><div><input id="room-chat-input" placeholder="Type a message and press Enter."><button class="primary-button" type="submit">Send</button></div></form><div class="leader-talk-controls"><button id="room-talk" class="talk-button" type="button" aria-pressed="false">Unmute workshop mic</button><p id="room-talk-status" class="talk-status" role="status">Microphone muted.</p></div></div></section></section>
+          <section id="launch-bud" class="leader-section launch-bud-view" hidden>
+            <p class="eyebrow">Private partner</p>
+            <h2>Launch Bud</h2>
+            <div id="bud-config-box" class="bud-config-box is-locked" aria-disabled="true">
+              <div class="subsection-heading"><div><p class="eyebrow">Activate your partner</p><h3>BUD CONFIG</h3></div><span id="bud-config-status" class="status-badge">Setup incomplete</span></div>
+              <p class="setup-note">Choose the Leader's native language so transcription and translation can focus on the expected language. Then launch Bud to check that the private chat is working.</p>
+              <label for="leader-native-language">Leader native language<select id="leader-native-language" disabled><option value="">Choose a language</option><option value="en">English</option><option value="zh">Chinese (Simplified)</option><option value="fr">French</option><option value="my">Burmese</option><option value="th">Thai</option><option value="ms">Malay</option></select></label>
+              <button id="launch-leader-bud" class="primary-button" type="button" disabled>Launch Bud</button>
+              <p id="bud-config-status-text" class="inline-status" role="status"></p>
+            </div>
+          </section>
+          <section id="plan-view" class="leader-section learning-plan-view" hidden>
+            <p class="eyebrow">Learning plan</p>
+            <div class="workshop-plan-heading"><div><h2>Full workshop plan</h2><p class="learning-plan-view-note">Review and edit every learner chapter. The plan must be locked before the workshop can go live.</p></div><span id="plan-review-status" class="status-badge">Draft</span></div>
+            <div id="full-learning-plan" class="workshop-task-list" aria-live="polite"><p class="workshop-plan-empty">Generate a learning plan from the curriculum to create task cards.</p></div>
+            <p id="plan-review-message" class="inline-status" role="status"></p>
+            <div class="leader-actions workshop-plan-actions"><button id="review-lock-plan-button" class="primary-button" type="button"><span aria-hidden="true">&#128275;</span> Lock workshop plan</button></div>
+            <div id="lock-confirmation" class="lock-confirmation" role="alertdialog" aria-labelledby="lock-confirmation-message" hidden><p id="lock-confirmation-message">Lock these task cards as the learning chapters for this workshop? They cannot be edited after locking.</p><div class="leader-actions"><button id="confirm-lock-button" class="primary-button" type="button">Yes, lock plan</button><button id="cancel-lock-button" class="secondary-button" type="button">Keep editing</button></div></div>
+          </section>
+          <section id="source-pack" class="leader-section" hidden>
+            <p class="eyebrow">Workshop (Live)</p>
+            <h2>Execute Learning Plan</h2>
+            <p id="live-plan-empty" class="inline-status">Open the prepared room to execute the learning plan.</p>
+            <div class="leader-live-workspace">
+              <section class="leader-document-workspace" aria-labelledby="leader-document-title">
+                <div class="subsection-heading"><div><p class="eyebrow">Workshop material</p><h3 id="leader-document-title">Workshop document</h3></div><span id="leader-document-meta">Workshop documents</span></div>
+                <article class="leader-document-page" aria-live="polite">
+                  <header><span id="leader-document-location">Current activity</span><strong id="leader-document-page-number">Page 1 of 1</strong></header>
+                  <h4 id="leader-document-page-heading">Workshop document</h4>
+                  <div id="leader-document-content" class="leader-docx-content"></div>
+                </article>
+                <div class="leader-document-controls">
+                  <button class="document-arrow" id="leader-document-previous" type="button" aria-label="Previous page">&#8592;</button>
+                  <span>Changing the page updates every learner.</span>
+                  <button class="document-arrow" id="leader-document-next" type="button" aria-label="Next page">&#8594;</button>
+                </div>
+              </section>
+              <aside class="leader-live-plan" aria-labelledby="leader-live-plan-title">
+                <div class="leader-live-plan-heading"><div><p class="eyebrow">Current focus</p><h3 id="leader-live-plan-title">Learning points</h3></div><span id="leader-live-plan-progress">0 / 0</span></div>
+                <div id="leader-live-plan-tasks" class="leader-live-plan-tasks"><p class="empty">No learning points published.</p></div>
+              </aside>
+            </div>
+            <section class="captions leader-captions leader-public-captions-panel" aria-labelledby="leader-public-captions-title">
+              <div class="subsection-heading"><div><p class="eyebrow">Live translation</p><h3 id="leader-public-captions-title">Main room captions</h3></div><button id="clear-room-captions" class="secondary-button" type="button">Clear</button></div>
+              <div id="room-caption-list" class="caption-list" aria-live="polite" aria-atomic="false"><p class="empty">Captions will appear when someone speaks in the workshop.</p></div>
+            </section>
+            <section class="room-management-section live-chat-section public-chat-view" aria-labelledby="room-chat-title">
+              <div class="subsection-heading"><div><p class="eyebrow">Public chat room</p><h3 id="room-chat-title">Workshop Chat</h3></div><span class="status-badge">Visible to everyone</span></div>
+              <div class="leader-public-chat-room">
+                <div id="room-chat-messages" class="leader-public-chat-messages" aria-live="polite"><p class="empty">No public messages yet.</p></div>
+                <form id="room-chat-form" class="leader-public-chat-composer"><label for="room-chat-input">Message the workshop</label><div><input id="room-chat-input" placeholder="Type a message and press Enter."><button class="primary-button" type="submit">Send</button></div></form>
+                <div class="leader-talk-controls"><button id="room-talk" class="talk-button" type="button" aria-pressed="false">Unmute workshop mic</button><p id="room-talk-status" class="talk-status" role="status">Microphone muted.</p></div>
+              </div>
+            </section>
+          </section>
           <section id="insights" class="leader-section" hidden><p class="eyebrow">Room understanding</p><h2>Room insights</h2><p id="room-insights-summary">Task difficulty will appear as learners respond.</p><div id="task-insights-list" class="task-insights-list"><p class="inline-status">No task responses yet.</p></div></section>
         </section>
       </div>
     </main>
     <script src="/vendor/livekit-client.js"></script>
     <script src="/talk.js?v=1"></script>
-    <script src="/leader.js?v=workshop-mic-1"></script>
+    <script src="/leader.js?v=launch-bud-fixed-chat-1"></script>
   </body>
 </html>

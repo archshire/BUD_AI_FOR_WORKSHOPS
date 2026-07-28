@@ -55,6 +55,8 @@ let silenceTimeout = null;
 let workshopPages = [];
 let learningPlanTasks = [];
 let currentDocumentPage = 0;
+let lastSharedDocumentUpdatedAt = null;
+let activeLearningPlanTaskIndex = 0;
 let completedTasks = {};
 let taskResponses = {};
 let expandedLearningPlanTasks = {};
@@ -137,6 +139,7 @@ function boot() {
   window.setInterval(getState, 3000);
   window.setInterval(pollSharedMessages, 3000);
   window.setInterval(refreshWorkshopMaterial, 5000);
+  window.setInterval(refreshSharedDocumentPage, 1500);
   updateBudName();
   applyLearnerBackground();
   applyBudAvatar();
@@ -210,14 +213,36 @@ function refreshWorkshopMaterial() {
       return response.json();
     })
     .then(function (payload) {
-      workshopPages = payload.pages && payload.pages.length
-        ? payload.pages
-        : [{ page_id: "documents", filename: "Workshop documents", location: "Current activity", text: "Read the workshop documents. Complete the current task, ask Bud about anything unclear, and identify the evidence that would show the task was completed." }];
+      workshopPages = Array.isArray(payload.pages) ? payload.pages : [];
       learningPlanTasks = parseLearningPlanTasks(payload.learning_plan || "");
-      currentDocumentPage = Math.min(currentDocumentPage, workshopPages.length - 1);
+      currentDocumentPage = workshopPages.length
+        ? Math.min(currentDocumentPage, workshopPages.length - 1)
+        : 0;
       renderAttachments();
       renderLearningPlanTasks();
       renderDocumentPage();
+      refreshSharedDocumentPage();
+    })
+    .catch(function () {});
+}
+
+function refreshSharedDocumentPage() {
+  fetch("/api/workshop-document-control?room=" + encodeURIComponent(elements.roomInput.value.trim() || "BUD-101"))
+    .then(function (response) {
+      if (!response.ok) throw new Error("Workshop document control unavailable");
+      return response.json();
+    })
+    .then(function (control) {
+      if (!workshopPages.length || control.updated_at === lastSharedDocumentUpdatedAt) return;
+      lastSharedDocumentUpdatedAt = control.updated_at;
+      activeLearningPlanTaskIndex = control.active_task_index === null ? -1 : Number(control.active_task_index) || 0;
+      const nextPage = Math.max(0, Math.min(workshopPages.length - 1, Number(control.page_index) || 0));
+      if (nextPage !== currentDocumentPage) {
+        currentDocumentPage = nextPage;
+        renderDocumentPage();
+      } else {
+        renderLearningPlanTasks();
+      }
     })
     .catch(function () {});
 }
@@ -253,14 +278,27 @@ function changeDocumentPage(delta) {
 
 function renderDocumentPage() {
   const page = workshopPages[currentDocumentPage];
-  if (!page) return;
+  if (!page) {
+    elements.documentMeta.textContent = "";
+    elements.documentLocation.textContent = "";
+    elements.documentPageNumber.textContent = "";
+    elements.documentPageHeading.textContent = "";
+    elements.documentContent.innerHTML = "";
+    elements.documentPrevious.disabled = true;
+    elements.documentNext.disabled = true;
+    elements.documentTaskAction.hidden = true;
+    renderLearningPlanTasks();
+    return;
+  }
   elements.documentMeta.textContent = page.filename;
   elements.documentLocation.textContent = page.location;
   elements.documentPageNumber.textContent = "Page " + (currentDocumentPage + 1) + " of " + workshopPages.length;
   elements.documentPageHeading.textContent = page.filename;
   renderDocumentContent(page);
-  elements.documentPrevious.disabled = currentDocumentPage === 0;
-  elements.documentNext.disabled = currentDocumentPage === workshopPages.length - 1;
+  elements.documentPrevious.disabled = true;
+  elements.documentNext.disabled = true;
+  elements.documentPrevious.title = "The workshop Leader controls the current page";
+  elements.documentNext.title = "The workshop Leader controls the current page";
   const currentTask = taskForPage(page, currentDocumentPage);
   const isTask = Boolean(currentTask) || page.text.toLowerCase().indexOf("task:") !== -1;
   const completionKey = taskCompletionKey(page);
@@ -273,6 +311,17 @@ function renderDocumentPage() {
 
 function renderDocumentContent(page) {
   elements.documentContent.innerHTML = "";
+  if (page.rendered_slide_url) {
+    const stage = document.createElement("div");
+    stage.className = "rendered-document-stage";
+    const slide = document.createElement("img");
+    slide.className = "rendered-document-slide";
+    slide.alt = "Slide " + (Number(page.rendered_page) || currentDocumentPage + 1) + " from " + page.filename;
+    slide.src = page.rendered_slide_url;
+    stage.appendChild(slide);
+    elements.documentContent.appendChild(stage);
+    return;
+  }
   const blocks = Array.isArray(page.blocks) ? page.blocks : [];
   if (!blocks.length) {
     const fallback = document.createElement("p");
@@ -342,10 +391,15 @@ function parseLearningPlanTasks(plan) {
   let currentSection = "";
   lines.forEach(function (line) {
     const numbered = line.match(/^\d+[\).\s-]+(.+)/);
-    if (numbered && !/\btask\b/i.test(line)) currentSection = numbered[1].replace(/[:*#]+$/g, "").trim();
+    if (numbered && !/\btask\b/i.test(line)) currentSection = plainLearningPlanTitle(numbered[1]);
     const taskMatch = line.match(/\btask\b\s*[:\-]\s*(.+)$/i);
     if (taskMatch) {
-      tasks.push({ section: currentSection || "Learning plan", text: taskMatch[1].trim() });
+      tasks.push({ section: currentSection || "Learning plan", text: taskMatch[1].trim(), comprehensionCheck: "" });
+      return;
+    }
+    const checkMatch = line.match(/\b(?:comprehension\s+check|check|completion\s+action)\b\s*[:\-]\s*(.+)$/i);
+    if (checkMatch && tasks.length) {
+      tasks[tasks.length - 1].comprehensionCheck = checkMatch[1].trim();
       return;
     }
     if (/^\s*[-*]\s+/i.test(line) && /\b(complete|identify|discuss|write|compare|reflect|create|answer|read)\b/i.test(line)) {
@@ -353,6 +407,10 @@ function parseLearningPlanTasks(plan) {
     }
   });
   return tasks;
+}
+
+function plainLearningPlanTitle(value) {
+  return String(value || "").replace(/^[#*_`\s]+|[#*_`:\s]+$/g, "").trim();
 }
 
 function renderLearningPlanTasks() {
@@ -370,7 +428,7 @@ function renderLearningPlanTasks() {
     const taskId = taskResponseId(index);
     const isComplete = Boolean(taskResponses[taskId] || completedTasks[taskId]);
     const isExpanded = Boolean(expandedLearningPlanTasks[taskId]);
-    item.className = "learning-plan-task" + (index === currentDocumentPage ? " is-current" : "") + (isComplete ? " is-complete" : "");
+    item.className = "learning-plan-task" + (index === activeLearningPlanTaskIndex ? " is-current" : "") + (isComplete ? " is-complete" : "");
     const summary = document.createElement("div");
     summary.className = "learning-plan-task-summary";
     summary.setAttribute("role", "button");
@@ -382,7 +440,7 @@ function renderLearningPlanTasks() {
     checkbox.disabled = true;
     checkbox.setAttribute("aria-hidden", "true");
     const label = document.createElement("strong");
-    label.textContent = "Task " + (index + 1);
+    label.textContent = task.section || "Learning point " + (index + 1);
     summary.append(checkbox, label);
     summary.addEventListener("click", function () {
       expandedLearningPlanTasks[taskId] = !expandedLearningPlanTasks[taskId];
@@ -400,7 +458,7 @@ function renderLearningPlanTasks() {
     const text = document.createElement("p");
     text.textContent = task.text;
     const section = document.createElement("span");
-    section.textContent = task.section;
+    section.textContent = "Task " + (index + 1);
     const actions = document.createElement("div");
     actions.className = "task-comprehension-actions";
     [
@@ -421,7 +479,8 @@ function renderLearningPlanTasks() {
       button.addEventListener("click", function () { submitTaskComprehension(task, index, option.response); });
       actions.appendChild(button);
     });
-    details.append(text, section, actions);
+    details.appendChild(text);
+    details.append(section, actions);
     item.append(summary, details);
     elements.learningPlanTasks.appendChild(item);
   });
@@ -452,7 +511,7 @@ function submitTaskComprehension(task, index, response) {
   }).then(function (responseObject) {
     return responseObject.json();
   }).then(function (payload) {
-    if (payload.state) renderState(payload.state);
+    if (payload.state) renderLocalizedState(payload.state);
   }).catch(showOffline);
 }
 
@@ -638,7 +697,7 @@ function requestPeriodicSummary() {
   })
     .then(function (response) { return response.json(); })
     .then(function (payload) {
-      if (payload.state) renderState(payload.state);
+      if (payload.state) renderLocalizedState(payload.state);
     })
     .catch(function () {});
 }
@@ -901,12 +960,30 @@ function currentMessages() {
   return lastState ? lastState.private_messages : [];
 }
 
+function selectedNativeLanguage() {
+  return elements.nativeLanguageInput && elements.nativeLanguageInput.value || "en";
+}
+
+function renderLocalizedState(state) {
+  const targetLanguage = selectedNativeLanguage();
+  const hasUnlocalizedBudReply = targetLanguage !== "en" && (state.private_messages || []).some(function (message) {
+    return message.sender === "bud" && message.text && message.language !== targetLanguage;
+  });
+  if (hasUnlocalizedBudReply) {
+    getState();
+    return;
+  }
+  renderState(state);
+}
+
 function getState() {
-  fetch("/api/state?participant_id=" + encodeURIComponent(PARTICIPANT_ID) + "&room=" + encodeURIComponent(elements.roomInput.value.trim() || "BUD-101"))
+  fetch("/api/state?participant_id=" + encodeURIComponent(PARTICIPANT_ID) +
+    "&room=" + encodeURIComponent(elements.roomInput.value.trim() || "BUD-101") +
+    "&target=" + encodeURIComponent(selectedNativeLanguage()))
     .then(function (response) {
       return response.json();
     })
-    .then(renderState)
+    .then(renderLocalizedState)
     .catch(showOffline);
 }
 
@@ -923,7 +1000,7 @@ function postJson(url, body) {
       return response.json();
     })
     .then(function (payload) {
-      renderState(payload.state);
+      renderLocalizedState(payload.state);
       if (payload.event && payload.event.type === "participant_message" && payload.event.privacy_scope === "group_shared") {
         const groupMessage = {
           type: "group_message",
