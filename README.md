@@ -10,6 +10,7 @@ requirements are in the [active PRD](docs/01_PRODUCT/PRD_BUD_AI_DYNAMIC_MULTILIN
 
 - [Why Bud AI Exists](#why-bud-ai-exists)
 - [Main Areas](#main-areas)
+- [How To Use](#how-to-use)
 - [Docker Demo](#docker-demo)
 - [Same-Network Testing](#same-network-testing)
 - [Licensing](#licensing)
@@ -86,6 +87,21 @@ privacy-keyed retrieval, and rolling summaries.
 
 The `Krystal/` directory contains the Krystalize method, governance notes, and
 templates. It is process material rather than active product documentation.
+
+## How To Use
+
+Begin the evaluation from the learner landing page:
+
+**[Open the Bud AI learner landing page](https://budaiforworkshops-production-a2b7.up.railway.app/)**
+
+1. Choose **Registered learner** or **Join as guest**.
+2. Enter the learner details and workshop room code. The demo room is `BUD-101`.
+3. Select **Enter learning space** and complete the microphone, document, and
+   privacy checks.
+4. Activate Learner Bud to enter the live workshop experience.
+
+The Leader workflow is available separately at
+`https://budaiforworkshops-production-a2b7.up.railway.app/leader`.
 
 ## Docker Demo
 
