@@ -2,7 +2,7 @@ const assert = require("assert");
 const { createBudRuntime } = require("../apps/server/src/runtime");
 const { createInMemoryStateStore } = require("../apps/server/src/state/in-memory-state-store");
 const { executeDecisionTools } = require("../apps/server/src/tools/tool-executor");
-const { createServer, checkinRecipients, asksCurrentLesson, isGenericModelReply, isUsableLearnerBudReply, isUsableLeaderBudReply, llmProvider, llmProviderLabel, normalizeLearnerReasoningText, normalizeChineseBudReply } = require("../apps/server/src/index");
+const { createServer, checkinRecipients, asksCurrentLesson, isGenericModelReply, personalMemoryHasIntroducedRelation, isUsableLearnerBudReply, isUsableLeaderBudReply, llmProvider, llmProviderLabel, normalizeLearnerReasoningText, normalizeChineseBudReply } = require("../apps/server/src/index");
 const { createTranscriptLog } = require("../apps/server/src/transcript/transcript-log");
 const { createSentenceBuffer } = require("../apps/server/src/transcript/sentence-buffer");
 const { cleanTranscript } = require("../apps/server/src/providers/transcript-hygiene");
@@ -430,6 +430,13 @@ function testLearnerResponseBrief() {
   assert.equal(isUsableLeaderBudReply("I am a helpful assistant. What would you like?"), false);
   assert.equal(isUsableLearnerBudReply("Let’s take the next task one small step at a time."), true);
   assert.equal(isUsableLeaderBudReply("The curriculum identifies language barriers as the central challenge."), true);
+  const privateMemory = [
+    "# Bud Memory",
+    "- 2026-07-28T10:00:00.000Z | leader: My sister's name is Avery.",
+    "- 2026-07-28T10:01:00.000Z | leader: What is my brother's name?"
+  ].join("\n");
+  assert.equal(personalMemoryHasIntroducedRelation(privateMemory, "What is my sister's name?"), true);
+  assert.equal(personalMemoryHasIntroducedRelation(privateMemory, "What is my brother's name?"), false);
 }
 
 function testCurrentLessonIntentBoundary() {

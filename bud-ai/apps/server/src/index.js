@@ -1350,7 +1350,7 @@ function createServer(options) {
           question: directSourceAnswer
             ? responseBrief
             : responseBrief + "\n\n[AUTHORITATIVE LEARNER WORKSHOP CONTEXT]\n" + learnerContext + "\n\n[SCOPED LEARNER BUD CONTEXTUAL MEMORY]\n" + scopedMemoryContext,
-          sourceContext: personalContext ? privateMemorySourceContext(privateMemory) : sourceContext,
+          sourceContext: personalContext ? privateMemorySourceContext(privateMemory, "Learner Bud") : sourceContext,
           continuityContext: personalContext ? "" : privateMemory,
           continuity_context_chars: 1400,
           source_context_chars: 2200,
@@ -1374,7 +1374,10 @@ function createServer(options) {
           });
         }
         if (localReply && isUsableLearnerBudReply(localReply.text)) {
-          const normalizedReply = personalContext && asksUnknownPersonalFact(learnerText) && !hasUnknownPersonalFactBoundary(localReply.text)
+          const normalizedReply = personalContext &&
+            asksUnknownPersonalFact(learnerText) &&
+            !personalMemoryHasIntroducedRelation(privateMemory, learnerText) &&
+            !hasUnknownPersonalFactBoundary(localReply.text)
             ? unknownPersonalFactReply(learnerText, currentPrompt(runtime.getStateSnapshot()))
             : normalizeLearnerBudReply(localReply.text);
           const replyText = directSourceAnswer && nativeLanguage === "zh"
@@ -1856,7 +1859,7 @@ function createServer(options) {
           question: directSourceAnswer
             ? responseBrief
             : responseBrief + "\n\nAUTHORITATIVE WORKSHOP CONTEXT:\n[" + sourceContext.label.toUpperCase() + " IS SUPPLIED ABOVE BY THE APPLICATION]\n" + roomContext + "\n" + attendanceEvidence(attendance) + "\n[STRUCTURED CONTEXTUAL MEMORY RETRIEVAL]\n" + memoryContext,
-          sourceContext: personalContext ? privateMemorySourceContext(privateLeaderMemory) : sourceContext,
+          sourceContext: personalContext ? privateMemorySourceContext(privateLeaderMemory, "Leader Bud") : sourceContext,
           continuityContext: personalContext ? "" : privateLeaderMemory,
           continuity_context_chars: 1400,
           source_context_chars: 2200,
@@ -1870,7 +1873,10 @@ function createServer(options) {
         });
         budMemoryStore.append(roomName, "leader", "leader", text);
         if (localReply && isUsableLeaderBudReply(localReply.text)) {
-          const replyText = personalContext && asksUnknownPersonalFact(text) && !hasUnknownPersonalFactBoundary(localReply.text)
+          const replyText = personalContext &&
+            asksUnknownPersonalFact(text) &&
+            !personalMemoryHasIntroducedRelation(privateLeaderMemory, text) &&
+            !hasUnknownPersonalFactBoundary(localReply.text)
             ? unknownPersonalFactLeaderReply(text)
             : normalizeLeaderBudReply(localReply.text);
           budMemoryStore.append(roomName, "leader", "bud", replyText);
@@ -3058,12 +3064,26 @@ function asksUnknownPersonalFact(value) {
   return isLearnerPersonalContext(text) && /\b(what'?s|what is|who is|who's|tell me|do you know)\b/.test(text);
 }
 
-function privateMemorySourceContext(memory) {
+function privateMemorySourceContext(memory, personaName) {
   return {
-    label: "Private learner Bud memory",
+    label: String(personaName || "Bud") + " private partner memory",
     version: "private-memory",
     text: String(memory || "No private Bud memory has been recorded yet.")
   };
+}
+
+function personalMemoryHasIntroducedRelation(memory, question) {
+  const relation = (String(question || "").match(/\b(?:my|our)\s+([a-z]+)/i) || [])[1];
+  if (!relation) return false;
+  const relationPattern = new RegExp("\\b(?:my|our)\\s+" + relation.replace(/[^a-z]/gi, "") + "\\b", "i");
+  return String(memory || "").split(/\r?\n/).some(function (line) {
+    const exchange = line.match(/\|\s+(?:leader|learner|partner)\s*:\s*(.+)$/i);
+    if (!exchange) return false;
+    const statement = exchange[1].trim();
+    return relationPattern.test(statement) &&
+      !/[?]\s*$/.test(statement) &&
+      !/^(?:what|who|where|when|why|how|do you know|tell me)\b/i.test(statement);
+  });
 }
 
 function hasUnknownPersonalFactBoundary(value) {
@@ -4312,6 +4332,7 @@ module.exports = {
   checkinRecipients,
   asksCurrentLesson,
   isGenericModelReply,
+  personalMemoryHasIntroducedRelation,
   isUsableLearnerBudReply,
   isUsableLeaderBudReply,
   llmProvider,
