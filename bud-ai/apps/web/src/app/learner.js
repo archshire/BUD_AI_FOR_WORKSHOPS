@@ -220,16 +220,16 @@
   function refreshBreakout() {
     Promise.all([
       fetch("/api/facilitator/rooms").then(function (response) { return response.json(); }),
-      fetch("/api/state?participant_id=" + encodeURIComponent(participantId)).then(function (response) { return response.json(); })
+      fetch("/api/state?participant_id=" + encodeURIComponent(participantId) + "&room=" + encodeURIComponent(query.get("room") || "BUD-101")).then(function (response) { return response.json(); })
     ]).then(function (results) {
       const rooms = results[0].rooms || [];
       const state = results[1];
       let allocation = null;
+      // Guest display names can recur across sessions. Always resolve the
+      // current participant ID before using a name-only legacy fallback.
       rooms.some(function (room) {
         const breakout = (room.breakout_assignments || []).find(function (assignment) {
-          return (assignment.members || []).some(function (item) {
-            return item.participant_id === participantId || item.display_name === displayName;
-          });
+          return (assignment.members || []).some(function (item) { return item.participant_id === participantId; });
         });
         if (breakout) {
           allocation = { room_name: room.room_name + " / " + breakout.group_id, allocations: breakout.members, group_id: breakout.group_id };
@@ -237,6 +237,18 @@
         }
         return false;
       });
+      if (!allocation) {
+        rooms.some(function (room) {
+          const breakout = (room.breakout_assignments || []).find(function (assignment) {
+            return (assignment.members || []).some(function (item) { return !item.participant_id && item.display_name === displayName; });
+          });
+          if (breakout) {
+            allocation = { room_name: room.room_name + " / " + breakout.group_id, allocations: breakout.members, group_id: breakout.group_id };
+            return true;
+          }
+          return false;
+        });
+      }
       if (!allocation) {
         breakoutGroupId = "group-main";
         breakoutMemberNames = {};

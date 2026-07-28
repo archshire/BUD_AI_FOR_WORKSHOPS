@@ -129,12 +129,27 @@ silence or expose a learner's private Bud content. A follow-up such as “how ar
 they doing?” inherits the preceding room-status subject rather than falling
 back to a generic model explanation.
 
-Learner Bud's identity, assigned-group, lesson, self-check-in, and evidence
-questions are also direct source routes. For personal questions that lack a
-fact in that Bud's own private Markdown memory, the application requires an
-unknown-without-guessing response. This keeps the model useful for natural
-language while preserving the application as the authority for facts and
-scope.
+Learner Bud's identity, assigned-group, lesson, self-check-in, evidence,
+next-step, uncertainty, and other-learner-location questions are also direct
+source routes. Its constrained-Qwen path receives only active source material,
+the locked learning plan, that learner's task check-ins, permitted group scope,
+and private memory. It has the same authoritative-source gate as Leader Bud;
+unsupported workshop questions do not reach Qwen. A post-generation guard
+rejects generic greetings, promises to search context, and generic
+workshop-partner text in favor of a grounded fallback. For personal questions
+that lack a fact in that Bud's own private Markdown memory, the application
+requires an unknown-without-guessing response.
+
+Explicit learner distress, threats of harm, and clearly off-task questions
+also have deterministic Learner Bud routes. The first two provide a calm
+support or urgent-safety boundary without diagnosing the learner; off-task
+questions return honestly to the current workshop rather than being handed to
+Qwen as an open-ended chat request.
+
+Breakout membership is resolved by stable participant ID before a legacy
+display-name fallback. The server also replaces a requested breakout target
+with the sender's current assigned group, preventing a duplicate guest name or
+stale browser state from writing into another breakout chat.
 
 ## Runtime Components
 

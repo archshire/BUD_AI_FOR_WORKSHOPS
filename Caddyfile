@@ -1,0 +1,13 @@
+{
+	default_sni {$LAN_HOST:10.12.7.1}
+}
+
+https://{$LAN_HOST:10.12.7.1} {
+	tls internal
+	reverse_proxy bud:3002
+}
+
+https://{$LAN_HOST:10.12.7.1}:7880 {
+	tls internal
+	reverse_proxy livekit:7880
+}

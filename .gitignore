@@ -14,6 +14,7 @@ env/
 .env
 .env.*
 !.env.example
+bud-local-ca.crt
 
 # Runtime logs, recordings, and session data
 *.log

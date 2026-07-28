@@ -3,9 +3,24 @@ services:
     image: livekit/livekit-server:latest
     command: ["--dev", "--bind", "0.0.0.0", "--node-ip", "${LIVEKIT_NODE_IP:-127.0.0.1}"]
     ports:
-      - "${LIVEKIT_PORT:-7880}:7880"
+      - "${LIVEKIT_DIRECT_PORT:-7883}:7880"
       - "${LIVEKIT_TCP_PORT:-7881}:7881"
       - "${LIVEKIT_UDP_PORT:-7882}:7882/udp"
+
+  gateway:
+    image: caddy:2-alpine
+    depends_on:
+      - bud
+      - livekit
+    environment:
+      LAN_HOST: ${LAN_HOST:-10.12.7.1}
+    ports:
+      - "${HTTPS_PORT:-8443}:443"
+      - "${LIVEKIT_PORT:-7880}:7880"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
 
   whisper:
     build:
@@ -57,7 +72,7 @@ services:
       PORT: 3002
       LIVEKIT_URL: ws://livekit:7880
       LIVEKIT_SERVER_URL: ws://livekit:7880
-      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-ws://127.0.0.1:7880}
+      LIVEKIT_PUBLIC_URL: ${LIVEKIT_PUBLIC_URL:-ws://127.0.0.1:7883}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-secret}
       STT_HOST: whisper
@@ -80,3 +95,5 @@ volumes:
   nllb-models:
   qwen-models:
   source-packs:
+  caddy-data:
+  caddy-config:

@@ -155,7 +155,7 @@ If the local demo already occupies the default ports, use alternate host
 ports while keeping the container ports unchanged:
 
 ```sh
-LIVEKIT_PORT=7890 BUD_PORT=3012 \
+LIVEKIT_DIRECT_PORT=7890 BUD_PORT=3012 \
 LIVEKIT_PUBLIC_URL=ws://127.0.0.1:7890 \
 QWEN_MODEL_MOUNT=/var/tmp/bud-qwen-model \
 QWEN_MODEL_FILE=Qwen3-1.7B-Q4_K_M.gguf \
@@ -169,20 +169,38 @@ To run the stack in the background, use `make up-d`; inspect it with
 ## Same-Network Testing
 
 The default URLs use `127.0.0.1` and work only on the host machine. To test
-from another device on the same LAN, find the host's LAN address and set both
-LiveKit variables before starting the stack. For example, if the host is
+from another device on the same LAN, find the host's LAN address and configure
+the HTTPS gateway and LiveKit with that address. For example, if the host is
 `10.12.7.1`:
 
 ```sh
-LIVEKIT_PUBLIC_URL=ws://10.12.7.1:7880 \
+LAN_HOST=10.12.7.1 \
+LIVEKIT_PUBLIC_URL=wss://10.12.7.1:7880 \
 LIVEKIT_NODE_IP=10.12.7.1 \
 make up-d
 ```
 
-Share `http://10.12.7.1:3002/` with learners and use
-`http://10.12.7.1:3002/leader` for the Leader view. The host firewall must
-allow TCP `3002`, `7880`, `7881`, and UDP `7882` on the local network. These
-settings are local environment configuration and should not be committed.
+Share `https://10.12.7.1:8443/` with learners and use
+`https://10.12.7.1:8443/leader` for the Leader view. The HTTPS gateway makes
+the page a secure browser context, so participants can grant microphone access.
+LiveKit is exposed as secure WebSockets on `wss://10.12.7.1:7880` and keeps
+its media ports on TCP `7881` and UDP `7882`. The direct `7883` mapping is
+for localhost development only; it is not needed by LAN clients.
+
+The gateway uses a private LAN certificate. On first use, export its root
+certificate and install it as trusted on every testing device:
+
+```sh
+docker compose cp gateway:/data/caddy/pki/authorities/local/root.crt ./bud-local-ca.crt
+```
+
+Then install `bud-local-ca.crt` as a trusted certificate authority in the
+device's operating system or browser profile, close and reopen the browser,
+and visit the HTTPS link. This is needed once per device; it avoids browser
+security warnings and allows the microphone prompt to work normally. The host
+firewall must allow TCP `8443`, `7880`, `7881`, and UDP `7882` on the local
+network. `LAN_HOST`, `LIVEKIT_PUBLIC_URL`, and `LIVEKIT_NODE_IP` are local
+environment configuration and should not be committed.
 
 ## Licensing
 

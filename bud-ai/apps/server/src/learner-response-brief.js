@@ -11,6 +11,7 @@ function buildLearnerResponseBrief(input) {
     "Audience: one learner. Speak warmly, plainly, and directly to them.",
     "Intent: " + intent + ".",
     "Evidence status: " + (sourceAvailable ? "active workshop material is available" : "no active workshop material is available") + ".",
+    "Evidence gate: answer workshop facts only when the supplied source, task state, or permitted learner context supports them. Never claim to search or check context.",
     "Permitted scope: this learner's private Bud memory, public workshop context, and " + groupScope(groupId) + ".",
     "Privacy: never reveal another learner's private conversation or claim that the Leader can see this chat.",
     personalContext
@@ -48,7 +49,10 @@ function responseShape(intent) {
 }
 
 function normalizeLearnerBudReply(value) {
-  return String(value || "").trim().replace(/^I am Bud, your workshop partner\.\s*/i, "I'm here with you. ");
+  let text = String(value || "").trim();
+  text = text.replace(/^I am Bud, your workshop partner\.\s*/i, "");
+  text = text.replace(/^Hello there!\s*/i, "");
+  return text;
 }
 
 module.exports = { buildLearnerResponseBrief, classifyLearnerIntent, normalizeLearnerBudReply };

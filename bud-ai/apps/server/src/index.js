@@ -702,6 +702,39 @@ function createServer(options) {
           });
           return sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId, roomName) });
         }
+        if (asksLearnerUrgentSafetySupport(body.text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-bud-safety-support-" + Date.now(),
+            target_id: participantId,
+            sender: "bud",
+            text: learnerUrgentSafetyReply(),
+            provider: "learner-safety-support",
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId, roomName) });
+        }
+        if (asksLearnerEmotionalSupport(body.text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-bud-emotional-support-" + Date.now(),
+            target_id: participantId,
+            sender: "bud",
+            text: learnerEmotionalSupportReply(),
+            provider: "learner-emotional-support",
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId, roomName) });
+        }
+        if (isLearnerOffTaskQuestion(body.text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-bud-off-task-boundary-" + Date.now(),
+            target_id: participantId,
+            sender: "bud",
+            text: learnerOffTaskReply(),
+            provider: "learner-off-task-boundary",
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId, roomName) });
+        }
         if (asksGroupMates(body.text)) {
           runtime.recordPrivateMessage({
             message_id: "message-bud-group-mates-" + Date.now(),
@@ -709,6 +742,39 @@ function createServer(options) {
             sender: "bud",
             text: groupMatesReply(roomDirectory, roomName, participantId, learnerName),
             provider: "breakout-allocation-context",
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId, roomName) });
+        }
+        if (asksLearnerLocationQuestion(body.text) && !asksLearnerNextStep(body.text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-bud-location-boundary-" + Date.now(),
+            target_id: participantId,
+            sender: "bud",
+            text: learnerLocationBoundaryReply(body.text),
+            provider: "learner-location-boundary",
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId, roomName) });
+        }
+        if (asksLearnerNextStep(body.text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-bud-next-step-" + Date.now(),
+            target_id: participantId,
+            sender: "bud",
+            text: learnerNextStepReply(sourcePackStore, roomDirectory, roomName, participantId, learnerName, body.text),
+            provider: "learner-next-step-context",
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId, roomName) });
+        }
+        if (asksLearnerUncertainty(body.text)) {
+          runtime.recordPrivateMessage({
+            message_id: "message-bud-uncertainty-" + Date.now(),
+            target_id: participantId,
+            sender: "bud",
+            text: learnerUncertaintyReply(sourcePackStore, roomName),
+            provider: "learner-uncertainty-context",
             created_at: new Date().toISOString()
           });
           return sendJson(res, { result: summarizeResult(result), state: learnerState(runtime, participantId, roomName) });
@@ -770,15 +836,16 @@ function createServer(options) {
           });
         }
         const escalationRequested = result.decision.decision_type === "CREATE_FACILITATOR_SIGNAL";
-        const sourceContext = sourcePackStore.context(roomName, String(body.text || ""));
+        const sourceContext = learnerSourceContext(sourcePackStore, roomName, String(body.text || ""));
+        const sourcePages = sourcePackStore.pages(roomName);
         const personalContext = isLearnerPersonalContext(body.text);
-        if (!escalationRequested && !personalContext && !sourceContext.text) {
+        if (!escalationRequested && !personalContext && !hasAuthoritativeLearnerEvidence(sourceContext, sourcePages)) {
           runtime.recordPrivateMessage({
-            message_id: "message-bud-no-source-" + Date.now(),
+            message_id: "message-bud-no-authoritative-source-" + Date.now(),
             target_id: participantId,
             sender: "bud",
-            text: "I do not have an active workshop document yet. Could you ask the Leader to publish the workshop material?",
-            provider: "source-grounding-guard",
+            text: "I cannot answer that from the current workshop evidence yet. I can help once the active material or task is available, or you can tell me which task or sentence you mean.",
+            provider: "learner-authoritative-source-required",
             created_at: new Date().toISOString()
           });
           return sendJson(res, {
@@ -803,6 +870,7 @@ function createServer(options) {
         const learnerGroupId = resolveParticipantGroup(roomDirectory, roomName, participantId);
         const scopedMemoryContext = cognition.learnerRetrieval(roomName, participantId, learnerGroupId, String(body.text || ""));
         const privateMemory = budMemoryStore.context(roomName, participantId);
+        const learnerContext = learnerBudContext(runtime.getStateSnapshot(), sourcePackStore, roomName, participantId, learnerGroupId);
         const responseBrief = buildLearnerResponseBrief({
           question: String(body.text || ""),
           source_available: personalContext ? false : Boolean(sourceContext.text),
@@ -811,13 +879,14 @@ function createServer(options) {
         });
         const localReply = escalationRequested ? null : await askLocalBud({
           workshopPrompt: currentPrompt(runtime.getStateSnapshot()),
-          question: responseBrief + "\n\n[SCOPED LEARNER BUD CONTEXTUAL MEMORY]\n" + scopedMemoryContext + "\n\n[PRIVATE LEARNER BUD MEMORY]\n" + privateMemory,
+          question: responseBrief + "\n\n[AUTHORITATIVE LEARNER WORKSHOP CONTEXT]\n" + learnerContext + "\n\n[SCOPED LEARNER BUD CONTEXTUAL MEMORY]\n" + scopedMemoryContext + "\n\n[PRIVATE LEARNER BUD MEMORY]\n" + privateMemory,
           sourceContext: personalContext ? privateMemorySourceContext(privateMemory) : sourceContext,
-          source_context_chars: 2200,
+          source_context_chars: 3200,
           question_chars: 1600,
           max_tokens: Math.min(LEARNER_BUD_BEHAVIOR.max_tokens, 140),
+          persona_name: "Learner Bud",
           timeout_ms: 45000,
-          system: LEARNER_BUD_BEHAVIOR.system,
+          system: LEARNER_BUD_BEHAVIOR.system + " You are speaking privately with one learner. Stay in Learner Bud voice. Before answering, identify the supplied source, task state, or permitted learner context that supports the answer. If none supports a workshop-specific answer, say what cannot be confirmed instead of guessing. Never start with a generic greeting unless the learner greeted you.",
           audience: "learner"
         });
         budMemoryStore.append(roomName, participantId, "learner", body.text);
@@ -830,7 +899,7 @@ function createServer(options) {
             created_at: new Date().toISOString()
           });
         }
-        if (localReply) {
+        if (localReply && isUsableLearnerBudReply(localReply.text)) {
           const replyText = personalContext && asksUnknownPersonalFact(body.text) && !hasUnknownPersonalFactBoundary(localReply.text)
             ? unknownPersonalFactReply(body.text, currentPrompt(runtime.getStateSnapshot()))
             : normalizeLearnerBudReply(localReply.text);
@@ -846,15 +915,12 @@ function createServer(options) {
           });
         } else {
           runtime.recordPrivateMessage({
-            message_id: "message-bud-fallback-" + Date.now(),
+            message_id: "message-bud-grounding-fallback-" + Date.now(),
             scope: "private_participant_ai",
             target_id: participantId,
             sender: "bud",
-            text: "I cannot reach the workshop assistant right now. I do not want to guess about the material. " +
-              (currentPrompt(runtime.getStateSnapshot())
-                ? "The current workshop focus is: " + currentPrompt(runtime.getStateSnapshot()) + ". Which part would you like to work through when I reconnect?"
-                : "Please ask the Leader to publish the workshop material, then I can help you work through it."),
-            provider: "fallback",
+            text: learnerGroundingFallbackReply(sourcePages, currentPrompt(runtime.getStateSnapshot())),
+            provider: "learner-source-grounding-fallback",
             created_at: new Date().toISOString()
           });
         }
@@ -1175,6 +1241,19 @@ function createServer(options) {
           });
           return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
         }
+        if (asksNamedBreakoutAssignment(text, runtime.getStateSnapshot())) {
+          runtime.recordPrivateMessage({
+            message_id: "message-facil-bud-breakout-assignment-" + Date.now(),
+            scope: "private_facilitator_ai",
+            target_id: "facilitator-1",
+            sender: "facil-bud",
+            text: namedBreakoutAssignmentReply(roomDirectory, roomName, text, runtime.getStateSnapshot()),
+            provider: "breakout-allocation-context",
+            latency_ms: 0,
+            created_at: new Date().toISOString()
+          });
+          return sendJson(res, { result: summarizeResult(result), state: facilitatorState(runtime) });
+        }
         if (asksNamedLearnerWellbeing(text)) {
           const peopleMemory = cognition.peopleRetrieval(roomName, text);
           runtime.recordPrivateMessage({
@@ -1360,7 +1439,13 @@ function createServer(options) {
         if (!text) {
           return sendJson(res, { error: "Message text is required" }, 400);
         }
-        const groupId = String(body.group_id || "group-main");
+        const requestedGroupId = String(body.group_id || "group-main");
+        const assignedGroupId = resolveParticipantGroup(roomDirectory, roomName, participantId);
+        const groupId = requestedGroupId === "group-main"
+          ? "group-main"
+          : assignedGroupId === "group-main"
+            ? "group-main"
+            : assignedGroupId;
         const messageScope = groupId === "group-main" ? "public_shared" : "group_shared";
         const event = baseEvent({
           event_id: "ui-group-message-" + Date.now(),
@@ -1830,6 +1915,36 @@ function namedAttendanceReply(question, attendance, peopleMemory) {
   return "I only have attendance counts right now, not participant names, so I cannot confirm whether " + name + " is in the workshop.";
 }
 
+function asksNamedBreakoutAssignment(question, snapshot) {
+  const text = String(question || "").toLowerCase();
+  if (!/\b(breakout|group|room)\b/.test(text)) return false;
+  if (extractLikelyPersonName(question)) return true;
+  if (!/\b(which|what|where|yes|and)\b/.test(text)) return false;
+  const previous = mostRecentLeaderBudMessage(snapshot);
+  return Boolean(previous && previous.provider === "attendance-context" && namedPersonFromAttendanceReply(previous.text));
+}
+
+function namedBreakoutAssignmentReply(roomDirectory, roomName, question, snapshot) {
+  const previous = mostRecentLeaderBudMessage(snapshot);
+  const name = extractLikelyPersonName(question) || namedPersonFromAttendanceReply(previous && previous.text);
+  if (!name) return "Which learner do you mean? I can check the current breakout allocation once you name them.";
+  const room = roomDirectory.rooms[roomName] || {};
+  const assignment = (room.breakout_assignments || []).find(function (item) {
+    return (item.members || []).some(function (member) {
+      return normalizeName(member.display_name) === normalizeName(name) ||
+        normalizeName(member.participant_id) === normalizeName(name);
+    });
+  });
+  if (!assignment) return name + " is not assigned to a breakout room yet.";
+  const label = String(assignment.group_id || "breakout room").replace(/-/g, " ");
+  return name + " is assigned to " + label + ".";
+}
+
+function namedPersonFromAttendanceReply(value) {
+  const match = String(value || "").match(/^(.+?) is marked (?:present|absent) in the workshop attendance list\./i);
+  return match && match[1] ? titleCaseName(match[1]) : "";
+}
+
 function asksNamedLearnerWellbeing(value) {
   const text = String(value || "").trim().toLowerCase();
   return /\b(is|are|how is|how are)\b/.test(text) &&
@@ -2207,6 +2322,30 @@ function isCasualLearnerMessage(value) {
     !/\b(task|document|docs|material|lesson|workshop|page|explain|help|confused|stuck|understand)\b/.test(text);
 }
 
+function asksLearnerUrgentSafetySupport(value) {
+  return /\b(kill myself|hurt myself|end my life|want to die|suicid(?:e|al)|beat up|hurt (?:him|her|them|someone)|attack|stab|shoot)\b/i.test(String(value || ""));
+}
+
+function learnerUrgentSafetyReply() {
+  return "I am glad you said something. If you might hurt yourself or someone else, please contact local emergency services now or tell a trusted person nearby right away. You can also tell the facilitator you need support; I can help you write that message.";
+}
+
+function asksLearnerEmotionalSupport(value) {
+  return /\b(i (?:do not|don't) like myself|i hate myself|i feel worthless|i am worthless|i feel useless|i am useless)\b/i.test(String(value || ""));
+}
+
+function learnerEmotionalSupportReply() {
+  return "I am sorry you are feeling that way. You do not have to carry it alone; consider telling a trusted person or the facilitator that you are having a hard time. We can pause the task and take one small step when you are ready.";
+}
+
+function isLearnerOffTaskQuestion(value) {
+  return /\b(weather|football|soccer|sports? team|joke|movie|celebrity|politics|election)\b/i.test(String(value || ""));
+}
+
+function learnerOffTaskReply() {
+  return "I do not have a reliable answer to that, and I do not want to guess. Let us come back to the workshop: what part of the current task or material would you like help with?";
+}
+
 function isLearnerPersonalContext(value) {
   const text = String(value || "").toLowerCase();
   return /\b(my|our)\s+(sister|brother|mother|father|mum|mom|dad|parent|partner|spouse|wife|husband|child|daughter|son|friend)\b/.test(text);
@@ -2291,6 +2430,72 @@ function groupMatesReply(roomDirectory, roomName, participantId, learnerName) {
   }).filter(Boolean);
   if (!mates.length) return "You are the only person assigned to this breakout group right now.";
   return "Your breakout group includes " + mates.join(", ") + ".";
+}
+
+function asksLearnerNextStep(value) {
+  return /\b(what should i do next|what do i do next|what now|next step|where do i start|what(?:'s| is) next)\b/i.test(String(value || ""));
+}
+
+function learnerNextStepReply(sourcePackStore, roomDirectory, roomName, participantId, learnerName, question) {
+  const material = sourcePackStore.pages(roomName);
+  const task = firstLearningPlanTask(material.learning_plan);
+  const nextStep = task
+    ? "Start with this: " + task
+    : material.pages && material.pages.length
+      ? "Start by reading the current workshop material and finding its main idea."
+      : "Open the current workshop material and take the first task one small part at a time.";
+  const person = namedLocationQuestion(question);
+  return person ? nextStep + " I do not have a live location for " + person + "; I only know the membership of your assigned breakout group." : nextStep;
+}
+
+function asksLearnerUncertainty(value) {
+  return /\b(i (?:really )?(?:do not|don't) know|i(?:'m| am) not sure|no idea|i(?:'m| am) unsure)\b/i.test(String(value || ""));
+}
+
+function learnerUncertaintyReply(sourcePackStore, roomName) {
+  const material = sourcePackStore.pages(roomName);
+  const task = firstLearningPlanTask(material.learning_plan);
+  if (task) return "That is okay. Let us make it smaller: " + task + " Which word, sentence, or part should we unpack first?";
+  if (material.pages && material.pages.length) return "That is okay. Start with the first paragraph and tell me the one sentence that feels unclear; we can work through it together.";
+  return "That is okay. Tell me what you can see on the current task, even just a few words, and we will work out the next step together.";
+}
+
+function firstLearningPlanTask(value) {
+  const lines = String(value || "").split("\n").map(function (line) { return line.replace(/^\s*[-*#\d.)]+\s*/, "").trim(); }).filter(Boolean);
+  const labelled = lines.find(function (line) { return /^learner task\s*:/i.test(line); });
+  if (labelled) return compactText(labelled.replace(/^learner task\s*:\s*/i, ""), 240);
+  const task = lines.find(function (line) { return /^task\s*\d+\s*[:.-]/i.test(line); });
+  return task ? compactText(task.replace(/^task\s*\d+\s*[:.-]\s*/i, ""), 240) : "";
+}
+
+function namedLocationQuestion(value) {
+  const match = String(value || "").match(/\bwhere(?:'s| is)\s+([a-z][a-z' -]{1,40}?)(?:[?!.]|$)/i);
+  return match && match[1] ? titleCaseName(match[1]) : "";
+}
+
+function asksLearnerLocationQuestion(value) {
+  return Boolean(namedLocationQuestion(value));
+}
+
+function learnerLocationBoundaryReply(question) {
+  const name = namedLocationQuestion(question);
+  return "I do not have a live location for " + name + ". I can only use your own group membership and the shared workshop material, not track other learners.";
+}
+
+function isUsableLearnerBudReply(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  return !/^(?:hello|hi)\b[\s\S]{0,80}\b(?:i(?:'m| am) here|let me check|current context|how can i help)/i.test(text) &&
+    !/\b(?:let me check|search through|look through)\b[\s\S]{0,80}\b(?:context|document|material)/i.test(text) &&
+    !/\b(?:i(?:'m| am) bud, your workshop buddy|i am here to support your learning)\b/i.test(text);
+}
+
+function learnerGroundingFallbackReply(sourcePages, workshopPrompt) {
+  const task = firstLearningPlanTask(sourcePages && sourcePages.learning_plan);
+  if (task) return "I cannot give a reliable answer to that from the available context. The next task I can confirm is: " + task + " What part should we work through?";
+  if (sourcePages && sourcePages.pages && sourcePages.pages.length) return "I cannot confirm that from the current material. Point me to the sentence or task you mean, and I will help with that.";
+  if (workshopPrompt) return "I cannot confirm that from the current workshop evidence. The active workshop focus is: " + compactText(workshopPrompt, 220) + ". Which part should we work through?";
+  return "I cannot confirm that from the current workshop evidence. Tell me which task or sentence you mean, and I will help from there.";
 }
 
 function asksLearnerProgressStatus(value) {
@@ -2737,6 +2942,36 @@ function leaderSourceContext(sourcePackStore, roomName, question) {
     label: "Workshop Source Pack",
     status: "none"
   });
+}
+
+function learnerSourceContext(sourcePackStore, roomName, question) {
+  const activeContext = sourcePackStore.context(roomName, question, { all_chunks: true });
+  return Object.assign({}, activeContext, {
+    label: "Active Workshop Source Pack",
+    status: activeContext.text ? "active" : "none"
+  });
+}
+
+function hasAuthoritativeLearnerEvidence(sourceContext, sourcePages) {
+  return Boolean(
+    sourceContext && String(sourceContext.text || "").trim() ||
+    sourcePages && String(sourcePages.learning_plan || "").trim()
+  );
+}
+
+function learnerBudContext(snapshot, sourcePackStore, roomName, participantId, groupId) {
+  const material = sourcePackStore.pages(roomName);
+  const taskResponses = learnerTaskResponses(snapshot, roomName, participantId);
+  const taskCount = Object.keys(taskResponses).length;
+  const plan = String(material.learning_plan || "").trim();
+  const scope = groupId && groupId !== "group-main" ? "assigned breakout group " + groupId : "shared workshop room";
+  return [
+    "Learner identity: private Learner Bud for this learner only.",
+    "Permitted group scope: " + scope + ".",
+    plan ? "Locked learning plan:\n" + plan : "Locked learning plan: none available.",
+    "This learner's recorded task check-ins: " + (taskCount ? Object.keys(taskResponses).map(function (taskId) { return taskId + "=" + taskResponses[taskId]; }).join(", ") : "none yet") + ".",
+    "Do not infer another learner's private state, location, or chat from this context."
+  ].join("\n");
 }
 
 function hasAuthoritativeLeaderEvidence(sourceContext, sourcePages) {

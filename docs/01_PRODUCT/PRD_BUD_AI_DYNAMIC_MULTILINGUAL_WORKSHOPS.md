@@ -209,7 +209,9 @@ before the local model is called:
 
 1. Direct ground-truth routes answer identity, attendance, active lesson,
    assigned breakout membership, explicit task check-ins, room status, and
-   permitted shared-chat questions from application-owned sources.
+   permitted shared-chat questions from application-owned sources. Learner Bud
+   also directly handles its learner's next-step, uncertainty, group, and
+   other-learner-location boundaries rather than asking Qwen to improvise.
 2. A Leader room-status route reads the same task-insight records presented in
    Room Insights plus permitted Live Chat and breakout messages. It reports
    only explicit check-ins, public support signals, and shared discussion; it
@@ -231,7 +233,12 @@ before the local model is called:
    guessing and gently returns to workshop support.
 7. The application applies response guards before display: unsupported
    workshop claims fall back to an evidence-bound answer, and internal prompt
-   labels or template headings are not shown to users.
+   labels or template headings are not shown to users. Learner Bud rejects a
+   generic Qwen greeting, a claim that it will search context, or a generic
+   workshop-partner promise in place of an evidence-grounded answer.
+8. Learner Bud routes explicit distress or a threat of harm to a calm,
+   safety-oriented response and routes clearly off-task questions back to the
+   workshop. These boundaries do not depend on a free-form Qwen completion.
 
 **Evaluator check:** ask Leader Bud for the room state, then ask a pronoun
 follow-up such as “how are they doing?”. It must retain the room-status intent,

@@ -33,9 +33,15 @@ function run() {
   testLeaderResponseBrief();
   testLearnerResponseBrief();
   testLeaderNameRouting(function () {
-    testChatVisibilityAndLeaderContext(function () {
-      testLearnerServerApi(function () {
-        console.log("All Bud AI scaffold tests passed.");
+    testLeaderBreakoutAssignmentFollowup(function () {
+      testLearnerNextStepAndUncertainty(function () {
+        testBreakoutServerEnforcesAssignment(function () {
+          testChatVisibilityAndLeaderContext(function () {
+            testLearnerServerApi(function () {
+              console.log("All Bud AI scaffold tests passed.");
+            });
+          });
+        });
       });
     });
   });
@@ -76,7 +82,7 @@ function testLearnerResponseBrief() {
   assert.equal(brief.indexOf("never reveal another learner's private conversation") !== -1, true);
   const personalBrief = buildLearnerResponseBrief({ question: "What is my sister's name?", personal_context: true });
   assert.equal(personalBrief.indexOf("they have not introduced it yet") !== -1, true);
-  assert.equal(normalizeLearnerBudReply("I am Bud, your workshop partner. Let's unpack this.").indexOf("I'm here with you.") === 0, true);
+  assert.equal(normalizeLearnerBudReply("I am Bud, your workshop partner. Let's unpack this."), "Let's unpack this.");
 }
 
 function testLeaderResponseBrief() {
@@ -673,6 +679,135 @@ function testLeaderNameRouting(done) {
       assert.equal(answer.provider, "leader-identity-context");
       assert.equal(answer.text, "Your name is Daniel Yeo.");
       server.close(done);
+    });
+  });
+}
+
+function testLeaderBreakoutAssignmentFollowup(done) {
+  const fs = require("fs");
+  const os = require("os");
+  const path = require("path");
+  const roomName = "BUD-BREAKOUT-FOLLOWUP";
+  const roomDirectoryFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bud-breakout-followup-test-")), "rooms.json");
+  fs.writeFileSync(roomDirectoryFile, JSON.stringify({
+    rooms: {
+      [roomName]: {
+        room_name: roomName,
+        ready: true,
+        allocations: {},
+        breakout_assignments: [
+          { group_id: "breakout-room-2", members: [{ participant_id: "learner-tricia", display_name: "Tricia" }] }
+        ]
+      }
+    }
+  }));
+  const server = createServer({ room_directory_file: roomDirectoryFile });
+  server.listen(0, "127.0.0.1", function () {
+    const port = server.address().port;
+    requestJson(port, "POST", "/api/facilitator-message", {
+      room_name: roomName,
+      text: "Is Tricia in the workshop?",
+      attendance_context: {
+        registered_present: 1,
+        registered_absent: 0,
+        guests_present: 0,
+        registered_present_names: ["Tricia"]
+      }
+    }, function () {
+      requestJson(port, "POST", "/api/facilitator-message", {
+        room_name: roomName,
+        text: "Yes, which breakout room?"
+      }, function (payload) {
+        const answer = payload.state.facil_bud_messages.slice(-1)[0];
+        assert.equal(answer.provider, "breakout-allocation-context");
+        assert.equal(answer.text, "Tricia is assigned to breakout room 2.");
+        server.close(done);
+      });
+    });
+  });
+}
+
+function testLearnerNextStepAndUncertainty(done) {
+  const server = createServer();
+  server.listen(0, "127.0.0.1", function () {
+    const port = server.address().port;
+    requestJson(port, "POST", "/api/private-message", {
+      room_name: "BUD-101",
+      participant_id: "learner-tricia",
+      display_name: "Tricia",
+      text: "What do I do next? Where is Jack?"
+    }, function (nextStep) {
+      const nextAnswer = nextStep.state.private_messages.slice(-1)[0];
+      assert.equal(nextAnswer.provider, "learner-next-step-context");
+      assert.equal(nextAnswer.text.indexOf("I do not have a live location for Jack") !== -1, true);
+      requestJson(port, "POST", "/api/private-message", {
+        room_name: "BUD-101",
+        participant_id: "learner-tricia",
+        display_name: "Tricia",
+        text: "I really don't know?"
+      }, function (uncertainty) {
+        const uncertaintyAnswer = uncertainty.state.private_messages.slice(-1)[0];
+        assert.equal(uncertaintyAnswer.provider, "learner-uncertainty-context");
+        assert.equal(uncertaintyAnswer.text.indexOf("That is okay.") === 0, true);
+        requestJson(port, "POST", "/api/private-message", {
+          room_name: "BUD-101",
+          participant_id: "learner-tricia",
+          display_name: "Tricia",
+          text: "What is the weather tomorrow?"
+        }, function (unsupported) {
+          const unsupportedAnswer = unsupported.state.private_messages.slice(-1)[0];
+          assert.equal(unsupportedAnswer.provider, "learner-off-task-boundary");
+          requestJson(port, "POST", "/api/private-message", {
+            room_name: "BUD-101",
+            participant_id: "learner-tricia",
+            display_name: "Tricia",
+            text: "I am going to beat up the other team"
+          }, function (safety) {
+            const safetyAnswer = safety.state.private_messages.slice(-1)[0];
+            assert.equal(safetyAnswer.provider, "learner-safety-support");
+            server.close(done);
+          });
+        });
+      });
+    });
+  });
+}
+
+function testBreakoutServerEnforcesAssignment(done) {
+  const fs = require("fs");
+  const os = require("os");
+  const path = require("path");
+  const roomName = "BUD-BREAKOUT-ENFORCEMENT";
+  const roomDirectoryFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "bud-breakout-enforcement-test-")), "rooms.json");
+  fs.writeFileSync(roomDirectoryFile, JSON.stringify({
+    rooms: {
+      [roomName]: {
+        room_name: roomName,
+        ready: true,
+        allocations: {},
+        breakout_assignments: [
+          { group_id: "breakout-room-1", members: [{ participant_id: "learner-alice", display_name: "Alice" }] },
+          { group_id: "breakout-room-2", members: [{ participant_id: "learner-bob", display_name: "Bob" }] }
+        ]
+      }
+    }
+  }));
+  const server = createServer({ room_directory_file: roomDirectoryFile });
+  server.listen(0, "127.0.0.1", function () {
+    const port = server.address().port;
+    requestJson(port, "POST", "/api/group-message", {
+      room_name: roomName,
+      participant_id: "learner-alice",
+      sender_display_name: "Alice",
+      group_id: "breakout-room-2",
+      text: "This must stay in Alice's assigned room."
+    }, function (sent) {
+      assert.equal(sent.state.group_messages.length, 1);
+      assert.equal(sent.state.group_messages[0].target_id, "breakout-room-1");
+      requestJson(port, "GET", "/api/state?participant_id=learner-bob&room=" + roomName, null, function (bobState) {
+        assert.equal(bobState.group_messages.length, 0);
+        server.close(done);
+      });
     });
   });
 }
