@@ -2,7 +2,7 @@ const assert = require("assert");
 const { createBudRuntime } = require("../apps/server/src/runtime");
 const { createInMemoryStateStore } = require("../apps/server/src/state/in-memory-state-store");
 const { executeDecisionTools } = require("../apps/server/src/tools/tool-executor");
-const { createServer, checkinRecipients, asksCurrentLesson, isGenericModelReply, personalMemoryHasIntroducedRelation, isUsableLearnerBudReply, isUsableLeaderBudReply, llmProvider, llmProviderLabel, normalizeLearnerReasoningText, normalizeChineseBudReply } = require("../apps/server/src/index");
+const { createServer, checkinRecipients, asksCurrentLesson, asksPrivateConversationRecall, isGenericModelReply, personalMemoryHasIntroducedRelation, isUsableLearnerBudReply, isUsableLeaderBudReply, llmProvider, llmProviderLabel, normalizeLearnerReasoningText, normalizeChineseBudReply } = require("../apps/server/src/index");
 const { createTranscriptLog } = require("../apps/server/src/transcript/transcript-log");
 const { createSentenceBuffer } = require("../apps/server/src/transcript/sentence-buffer");
 const { cleanTranscript } = require("../apps/server/src/providers/transcript-hygiene");
@@ -217,8 +217,8 @@ function testWorkshopAudioAndCaptionWiring() {
   assert.equal(serverSource.indexOf("structured_output: true") !== -1, true);
   assert.equal(serverSource.indexOf("Follow the requested output structure exactly") !== -1, true);
   assert.equal(serverSource.indexOf("[PRIVATE PARTNER CONTINUITY MEMORY - NOT WORKSHOP GROUND TRUTH]") !== -1, true);
-  assert.equal(serverSource.indexOf("continuityContext: personalContext ? \"\" : privateMemory") !== -1, true);
-  assert.equal(serverSource.indexOf("continuityContext: personalContext ? \"\" : privateLeaderMemory") !== -1, true);
+  assert.equal(serverSource.indexOf("continuityContext: personalContext || conversationRecall ? \"\" : privateMemory") !== -1, true);
+  assert.equal(serverSource.indexOf("continuityContext: personalContext || conversationRecall ? \"\" : privateLeaderMemory") !== -1, true);
   assert.equal(serverSource.indexOf("budMemoryStore.clearRoom(roomName)") === -1, true);
   assert.equal(serverSource.split("timeout_ms: 180000").length - 1 >= 3, true);
   const parserSource = leader.slice(
@@ -424,6 +424,13 @@ function testLearnerResponseBrief() {
   assert.equal(brief.indexOf("never reveal another learner's private conversation") !== -1, true);
   const personalBrief = buildLearnerResponseBrief({ question: "What is my sister's name?", personal_context: true });
   assert.equal(personalBrief.indexOf("they have not introduced it yet") !== -1, true);
+  const recallBrief = buildLearnerResponseBrief({ question: "What did I ask you just before this?", conversation_context: true });
+  assert.equal(recallBrief.indexOf("private conversation memory is the requested evidence") !== -1, true);
+  assert.equal(recallBrief.indexOf("do not substitute workshop source content") !== -1, true);
+  assert.equal(asksPrivateConversationRecall("What did I ask you just before this?"), true);
+  assert.equal(asksPrivateConversationRecall("What were we talking about?"), true);
+  assert.equal(asksPrivateConversationRecall("Recap our previous conversation."), true);
+  assert.equal(asksPrivateConversationRecall("What does the workshop ask us to build?"), false);
   assert.equal(normalizeLearnerBudReply("I am Bud, your workshop partner. Let's unpack this."), "Let's unpack this.");
   assert.equal(isGenericModelReply("As an AI language model, I cannot access that."), true);
   assert.equal(isUsableLearnerBudReply("How can I assist you today?"), false);

@@ -1306,7 +1306,9 @@ function createServer(options) {
         const sourceContext = learnerSourceContext(sourcePackStore, roomName, learnerText);
         const sourcePages = sourcePackStore.pages(roomName);
         const personalContext = isLearnerPersonalContext(learnerText);
-        if (!escalationRequested && !personalContext && !hasAuthoritativeLearnerEvidence(sourceContext, sourcePages)) {
+        const conversationRecall = asksPrivateConversationRecall(learnerText);
+        const privateMemory = budMemoryStore.context(roomName, participantId);
+        if (!escalationRequested && !personalContext && !conversationRecall && !hasAuthoritativeLearnerEvidence(sourceContext, sourcePages)) {
           runtime.recordPrivateMessage({
             message_id: "message-bud-no-authoritative-source-" + Date.now(),
             target_id: participantId,
@@ -1336,22 +1338,24 @@ function createServer(options) {
         }
         const learnerGroupId = resolveParticipantGroup(roomDirectory, roomName, participantId);
         const scopedMemoryContext = cognition.learnerRetrieval(roomName, participantId, learnerGroupId, learnerText);
-        const privateMemory = budMemoryStore.context(roomName, participantId);
         const learnerContext = learnerBudContext(runtime.getStateSnapshot(), sourcePackStore, roomName, participantId, learnerGroupId);
         const responseBrief = buildLearnerResponseBrief({
           question: learnerText,
-          source_available: personalContext ? false : Boolean(sourceContext.text),
+          source_available: personalContext || conversationRecall ? false : Boolean(sourceContext.text),
           group_id: learnerGroupId,
-          personal_context: personalContext
+          personal_context: personalContext,
+          conversation_context: conversationRecall
         });
-        const directSourceAnswer = !personalContext && Boolean(sourceContext.text);
+        const directSourceAnswer = !personalContext && !conversationRecall && Boolean(sourceContext.text);
         const localReply = escalationRequested ? null : await askLocalBud({
           workshopPrompt: currentPrompt(runtime.getStateSnapshot()),
           question: directSourceAnswer
             ? responseBrief
-            : responseBrief + "\n\n[AUTHORITATIVE LEARNER WORKSHOP CONTEXT]\n" + learnerContext + "\n\n[SCOPED LEARNER BUD CONTEXTUAL MEMORY]\n" + scopedMemoryContext,
-          sourceContext: personalContext ? privateMemorySourceContext(privateMemory, "Learner Bud") : sourceContext,
-          continuityContext: personalContext ? "" : privateMemory,
+            : conversationRecall
+              ? responseBrief
+              : responseBrief + "\n\n[AUTHORITATIVE LEARNER WORKSHOP CONTEXT]\n" + learnerContext + "\n\n[SCOPED LEARNER BUD CONTEXTUAL MEMORY]\n" + scopedMemoryContext,
+          sourceContext: personalContext || conversationRecall ? privateMemorySourceContext(privateMemory, "Learner Bud") : sourceContext,
+          continuityContext: personalContext || conversationRecall ? "" : privateMemory,
           continuity_context_chars: 1400,
           source_context_chars: 2200,
           question_chars: 1600,
@@ -1833,8 +1837,9 @@ function createServer(options) {
         const memoryContext = cognition.leaderRetrieval(roomName, text);
         const sourcePages = sourcePackStore.pages(roomName);
         const personalContext = isLearnerPersonalContext(text);
+        const conversationRecall = asksPrivateConversationRecall(text);
         const privateLeaderMemory = budMemoryStore.context(roomName, "leader");
-        if (!personalContext && !hasAuthoritativeLeaderEvidence(sourceContext, sourcePages)) {
+        if (!personalContext && !conversationRecall && !hasAuthoritativeLeaderEvidence(sourceContext, sourcePages)) {
           runtime.recordPrivateMessage({
             message_id: "message-leader-bud-no-authoritative-source-" + Date.now(),
             scope: "private_facilitator_ai",
@@ -1851,16 +1856,19 @@ function createServer(options) {
           question: text,
           source_status: sourceContext.status,
           has_plan: Boolean(String(sourcePages.learning_plan || "").trim()),
-          personal_context: personalContext
+          personal_context: personalContext,
+          conversation_context: conversationRecall
         });
-        const directSourceAnswer = !personalContext && Boolean(sourceContext.text);
+        const directSourceAnswer = !personalContext && !conversationRecall && Boolean(sourceContext.text);
         const localReply = await askLocalBud({
           workshopPrompt: currentPrompt(runtime.getStateSnapshot()),
           question: directSourceAnswer
             ? responseBrief
-            : responseBrief + "\n\nAUTHORITATIVE WORKSHOP CONTEXT:\n[" + sourceContext.label.toUpperCase() + " IS SUPPLIED ABOVE BY THE APPLICATION]\n" + roomContext + "\n" + attendanceEvidence(attendance) + "\n[STRUCTURED CONTEXTUAL MEMORY RETRIEVAL]\n" + memoryContext,
-          sourceContext: personalContext ? privateMemorySourceContext(privateLeaderMemory, "Leader Bud") : sourceContext,
-          continuityContext: personalContext ? "" : privateLeaderMemory,
+            : conversationRecall
+              ? responseBrief
+              : responseBrief + "\n\nAUTHORITATIVE WORKSHOP CONTEXT:\n[" + sourceContext.label.toUpperCase() + " IS SUPPLIED ABOVE BY THE APPLICATION]\n" + roomContext + "\n" + attendanceEvidence(attendance) + "\n[STRUCTURED CONTEXTUAL MEMORY RETRIEVAL]\n" + memoryContext,
+          sourceContext: personalContext || conversationRecall ? privateMemorySourceContext(privateLeaderMemory, "Leader Bud") : sourceContext,
+          continuityContext: personalContext || conversationRecall ? "" : privateLeaderMemory,
           continuity_context_chars: 1400,
           source_context_chars: 2200,
           question_chars: 1800,
@@ -2881,6 +2889,13 @@ function asksToExplainPrevious(value) {
   const text = String(value || "").toLowerCase();
   return /\b(make sense|explain|clarify|simplif(?:y|ied)|break\s+it\s+down|help me understand|what does (?:this|that|it) mean)\b/.test(text) &&
     /\b(this|that|it|first|above|previous|earlier)\b/.test(text);
+}
+
+function asksPrivateConversationRecall(value) {
+  const text = String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+  return /\bwhat did i (?:ask you|say|say to you|tell you)(?: (?:just )?before this| previously| last(?: time)?)?\b/.test(text) ||
+    /\bwhat (?:was|were) (?:we|i) (?:talking|speaking|discussing) about\b/.test(text) ||
+    /\b(?:recap|summari[sz]e|remember) (?:our|my|the) (?:last|previous|earlier) (?:conversation|chat|exchange|question)\b/.test(text);
 }
 
 function explainPreviousLeaderContext(snapshot, sourcePackStore, roomName) {
@@ -4331,6 +4346,7 @@ module.exports = {
   startServer,
   checkinRecipients,
   asksCurrentLesson,
+  asksPrivateConversationRecall,
   isGenericModelReply,
   personalMemoryHasIntroducedRelation,
   isUsableLearnerBudReply,
