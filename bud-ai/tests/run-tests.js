@@ -2,7 +2,7 @@ const assert = require("assert");
 const { createBudRuntime } = require("../apps/server/src/runtime");
 const { createInMemoryStateStore } = require("../apps/server/src/state/in-memory-state-store");
 const { executeDecisionTools } = require("../apps/server/src/tools/tool-executor");
-const { createServer, checkinRecipients, asksCurrentLesson, llmProvider, llmProviderLabel, normalizeLearnerReasoningText, normalizeChineseBudReply } = require("../apps/server/src/index");
+const { createServer, checkinRecipients, asksCurrentLesson, isGenericModelReply, isUsableLearnerBudReply, isUsableLeaderBudReply, llmProvider, llmProviderLabel, normalizeLearnerReasoningText, normalizeChineseBudReply } = require("../apps/server/src/index");
 const { createTranscriptLog } = require("../apps/server/src/transcript/transcript-log");
 const { createSentenceBuffer } = require("../apps/server/src/transcript/sentence-buffer");
 const { cleanTranscript } = require("../apps/server/src/providers/transcript-hygiene");
@@ -216,6 +216,10 @@ function testWorkshopAudioAndCaptionWiring() {
   assert.equal(serverSource.indexOf("Create exactly 4 practical learner-centred chapters") !== -1, true);
   assert.equal(serverSource.indexOf("structured_output: true") !== -1, true);
   assert.equal(serverSource.indexOf("Follow the requested output structure exactly") !== -1, true);
+  assert.equal(serverSource.indexOf("[PRIVATE PARTNER CONTINUITY MEMORY - NOT WORKSHOP GROUND TRUTH]") !== -1, true);
+  assert.equal(serverSource.indexOf("continuityContext: personalContext ? \"\" : privateMemory") !== -1, true);
+  assert.equal(serverSource.indexOf("continuityContext: personalContext ? \"\" : privateLeaderMemory") !== -1, true);
+  assert.equal(serverSource.indexOf("budMemoryStore.clearRoom(roomName)") === -1, true);
   const parserSource = leader.slice(
     leader.indexOf("function plainWorkshopPlanValue"),
     leader.indexOf("function serializeWorkshopPlanCards")
@@ -420,6 +424,11 @@ function testLearnerResponseBrief() {
   const personalBrief = buildLearnerResponseBrief({ question: "What is my sister's name?", personal_context: true });
   assert.equal(personalBrief.indexOf("they have not introduced it yet") !== -1, true);
   assert.equal(normalizeLearnerBudReply("I am Bud, your workshop partner. Let's unpack this."), "Let's unpack this.");
+  assert.equal(isGenericModelReply("As an AI language model, I cannot access that."), true);
+  assert.equal(isUsableLearnerBudReply("How can I assist you today?"), false);
+  assert.equal(isUsableLeaderBudReply("I am a helpful assistant. What would you like?"), false);
+  assert.equal(isUsableLearnerBudReply("Let’s take the next task one small step at a time."), true);
+  assert.equal(isUsableLeaderBudReply("The curriculum identifies language barriers as the central challenge."), true);
 }
 
 function testCurrentLessonIntentBoundary() {
